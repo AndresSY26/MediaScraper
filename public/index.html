@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <title>MediaScraper — Extractor de Multimedia Web</title>
+  <meta name="description" content="Herramienta avanzada de web scraping para extraer, previsualizar y exportar imágenes y videos de cualquier sitio web.">
+  
+  <!-- PWA Manifest & Theme Color -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#090d16" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+
+  <!-- Remix Icon CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@4.9.0/fonts/remixicon.css" rel="stylesheet" />
+  
+  <!-- Google Fonts: Plus Jakarta Sans, Outfit, Sora -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=Sora:wght@400;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- TensorFlow.js & MobileNet -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Navbar / Header -->
+    <header class="navbar">
+      <div class="brand">
+        <div class="brand-logo-wrapper">
+          <img src="assets/logo.svg" alt="MediaScraper Logo" class="brand-logo-img" />
+        </div>
+        <span class="brand-title">MediaScraper</span>
+      </div>
+      
+      <nav class="nav-links-desktop">
+        <a href="#landingSection" class="nav-link-item active">Inicio</a>
+        <a href="#toolSection" class="nav-link-item">Extraer</a>
+        <a href="#featuresSection" class="nav-link-item">Capacidades</a>
+      </nav>
+
+      <div class="nav-actions">
+        <button id="pwaInstallBtn" class="btn-pwa" style="display: none;">
+          <i class="ri-download-cloud-line"></i> Instalar App
+        </button>
+
+        <!-- History Dropdown -->
+        <div class="history-dropdown-wrapper">
+          <button id="historyDropdownBtn" class="icon-btn" title="Historial Reciente">
+            <i class="ri-history-line"></i>
+          </button>
+          <div id="historyMenu" class="history-menu">
+            <div class="history-header">
+              <span><i class="ri-time-line"></i> Historial Reciente</span>
+              <button id="clearHistoryBtn" class="text-link-btn">Limpiar</button>
+            </div>
+            <div id="historyList" class="history-list"></div>
+          </div>
+        </div>
+
+        <button id="themeToggleBtn" class="icon-btn" title="Cambiar Tema">
+          <i id="themeIcon" class="ri-moon-clear-line"></i>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <!-- HERO PRESENTATION SECTION -->
+      <section id="landingSection" class="hero-section">
+        <h1 class="hero-title">
+          Extrae y Guarda Recursos Multimedia de <span class="accent-text">Cualquier Sitio Web</span>
+        </h1>
+        <p class="hero-subtitle">
+          Obtén instantáneamente imágenes en máxima calidad, videos HD y archivos ocultos con inspección por IA visual, visualizador interactivo y compresión local a tu PC.
+        </p>
+
+        <!-- CTA Action Group -->
+        <div class="hero-cta-group">
+          <a href="#toolSection" class="btn-primary-lg">
+            <i class="ri-flashlight-line"></i> Iniciar Extracción Ahora
+          </a>
+          <a href="#featuresSection" class="btn-secondary-lg">
+            <i class="ri-play-circle-line"></i> Ver Capacidades
+          </a>
+        </div>
+
+        <!-- 3-STEP WORKFLOW GUIDE -->
+        <div class="steps-container">
+          <div class="step-card">
+            <div class="step-badge">01</div>
+            <div class="step-icon"><i class="ri-clipboard-line"></i></div>
+            <h4 class="step-title">Pega la URL</h4>
+            <p class="step-desc">Copia cualquier enlace web e ingrésalo en el buscador.</p>
+          </div>
+          <div class="step-arrow"><i class="ri-arrow-right-s-line"></i></div>
+
+          <div class="step-card">
+            <div class="step-badge">02</div>
+            <div class="step-icon"><i class="ri-cpu-line"></i></div>
+            <h4 class="step-title">Analiza con 1-Clic</h4>
+            <p class="step-desc">La IA detecta imágenes en alta calidad, videos y formatos ocultos.</p>
+          </div>
+          <div class="step-arrow"><i class="ri-arrow-right-s-line"></i></div>
+
+          <div class="step-card">
+            <div class="step-badge">03</div>
+            <div class="step-icon"><i class="ri-folder-download-line"></i></div>
+            <h4 class="step-title">Descarga o Exporta</h4>
+            <p class="step-desc">Guarda directo en tu computadora en ZIP o carpeta local.</p>
+          </div>
+        </div>
+
+        <!-- ANIMATED FLOATING SHOWCASE CARDS -->
+        <div class="interactive-showcase-wrapper">
+          <!-- Card 1: Live Image Editor Showcase -->
+          <div class="floating-showcase-card edit-card-float">
+            <div class="showcase-card-header">
+              <span class="showcase-tag cyan"><i class="ri-magic-line"></i> Edición Canvas en Vivo</span>
+              <span class="live-dot-pulse"></span>
+            </div>
+            <div class="showcase-editor-preview">
+              <div class="editor-canvas-mock">
+                <i class="ri-image-edit-line editor-mock-icon"></i>
+                <span class="filter-pill-active">Filtro: Ciberpunk Neón</span>
+              </div>
+            </div>
+            <div class="showcase-swatches-row">
+              <span class="swatch-lbl">Paleta HEX:</span>
+              <div class="swatch-dots">
+                <span class="swatch-dot" style="background: #6366f1; box-shadow: 0 0 10px #6366f1;"></span>
+                <span class="swatch-dot" style="background: #06b6d4; box-shadow: 0 0 10px #06b6d4;"></span>
+                <span class="swatch-dot" style="background: #a855f7; box-shadow: 0 0 10px #a855f7;"></span>
+                <span class="swatch-dot" style="background: #10b981; box-shadow: 0 0 10px #10b981;"></span>
+                <span class="swatch-dot" style="background: #f43f5e; box-shadow: 0 0 10px #f43f5e;"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2: Live Exporting & Downloading Showcase -->
+          <div class="floating-showcase-card export-card-float">
+            <div class="showcase-card-header">
+              <span class="showcase-tag indigo"><i class="ri-file-zip-line"></i> Exportación & Descarga Local</span>
+              <span class="download-badge-status"><i class="ri-loader-4-line spin"></i> Comprimiendo</span>
+            </div>
+            <div class="showcase-export-details">
+              <div class="export-file-info">
+                <i class="ri-folder-zip-line export-zip-icon"></i>
+                <div>
+                  <div class="export-filename">MediaScraper_Paquete_4K.zip</div>
+                  <div class="export-filesize">38 Imágenes HD • 4 Videos MP4</div>
+                </div>
+              </div>
+              <div class="showcase-progress-track">
+                <div class="showcase-progress-fill"></div>
+              </div>
+              <div class="export-status-footer">
+                <span class="export-dest-path"><i class="ri-folder-shared-line"></i> C:\Downloads\ScrapedMedia</span>
+                <span class="export-percent">94%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Metrics Grid -->
+        <div class="metrics-row" style="margin-top: 36px;">
+          <div class="metric-box">
+            <span class="metric-number">100%</span>
+            <span class="metric-caption">Privado & Local</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-number">4K</span>
+            <span class="metric-caption">Soporte Ultra HD</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-number">0.1s</span>
+            <span class="metric-caption">Velocidad de Proxy</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCRAPING TOOL SECTION -->
+      <section id="toolSection" class="tool-section">
+        <div class="tool-header">
+          <h2 class="tool-title">Extraer Multimedia</h2>
+          <p class="tool-subtitle">Ingresa la URL del sitio web para iniciar la búsqueda instantánea.</p>
+        </div>
+
+        <div class="url-card">
+          <form id="scrapeForm" autocomplete="off">
+            <div class="url-input-container">
+              <i class="ri-global-line input-leading-icon"></i>
+              <input 
+                type="text" 
+                id="urlInput" 
+                class="url-input-field" 
+                placeholder="https://ejemplo.com o www.sitio.com..." 
+                required 
+              />
+              <button type="button" id="pasteUrlBtn" class="btn-paste" title="Pegar desde el Portapapeles">
+                <i class="ri-clipboard-line"></i> Pegar
+              </button>
+              <button type="submit" id="scrapeBtn" class="btn-submit">
+                <span id="btnText"><i class="ri-search-line"></i> Extraer</span>
+                <span id="btnLoading" style="display: none;"><i class="ri-loader-4-line spin"></i> Extrayendo...</span>
+              </button>
+            </div>
+
+            <!-- Deep Scraping Switch -->
+            <div class="deep-scrape-bar">
+              <label class="switch-label">
+                <input type="checkbox" id="deepScrapeToggle" class="switch-input" />
+                <span class="switch-track"></span>
+                <span class="switch-text">
+                  <strong>Activar Scraping Profundo:</strong> Explora enlaces internos en busca de recursos en máxima resolución.
+                </span>
+              </label>
+            </div>
+          </form>
+
+          <!-- Quick Links -->
+          <div class="quick-chips-row">
+            <span class="quick-label"><i class="ri-flashlight-line"></i> Ejemplos rápidos:</span>
+            <button type="button" class="chip-btn" data-url="https://andressy.dev/proyectos">andressy.dev/proyectos</button>
+            <button type="button" class="chip-btn" data-url="https://www.xataka.com">Xataka (Tech, Hardware & IA)</button>
+            <button type="button" class="chip-btn" data-url="https://www.nasa.gov">NASA</button>
+          </div>
+        </div>
+
+        <!-- Banners -->
+        <div id="socialWarningBanner" class="banner warning-banner" style="display: none;">
+          <i class="ri-error-warning-fill banner-icon"></i>
+          <div>
+            <div class="banner-title">Plataforma de Red Social Detectada</div>
+            <div class="banner-desc" id="socialWarningText">
+              Aún no tenemos soporte para redes sociales específicas (YouTube, Instagram, X/Twitter, TikTok). Por favor, intenta con un sitio web general.
+            </div>
+          </div>
+        </div>
+
+        <div id="errorBanner" class="banner error-banner" style="display: none;">
+          <i class="ri-close-circle-fill banner-icon"></i>
+          <div>
+            <div class="banner-title" id="errorTitle">Ocurrió un error</div>
+            <div class="banner-desc" id="errorDesc">No se pudo realizar la extracción en la URL especificada.</div>
+          </div>
+        </div>
+
+        <!-- RESULTS SECTION -->
+        <div id="resultsSection" class="results-container" style="display: none;">
+          <div class="results-header">
+            <div>
+              <h3 id="scrapedTitle" class="results-title">Resultados de la Extracción</h3>
+              <a id="scrapedUrlLink" href="#" target="_blank" rel="noopener" class="results-url">
+                https://ejemplo.com <i class="ri-external-link-line"></i>
+              </a>
+            </div>
+          </div>
+
+          <!-- Tabs & Action Bar -->
+          <div class="actions-bar">
+            <div class="category-tabs">
+              <button class="tab-item active" data-filter="all">
+                Todos <span id="countAll" class="tab-count">0</span>
+              </button>
+              <button class="tab-item" data-filter="image">
+                Imágenes <span id="countImages" class="tab-count">0</span>
+              </button>
+              <button class="tab-item" data-filter="video">
+                Videos <span id="countVideos" class="tab-count">0</span>
+              </button>
+            </div>
+
+            <div class="batch-actions">
+              <button id="selectAllBtn" class="btn-ghost">Seleccionar Todos</button>
+              <button id="deselectAllBtn" class="btn-ghost">Deseleccionar</button>
+              <button id="openExportModalBtn" class="btn-action-primary" disabled>
+                <i class="ri-download-2-line"></i> Descargar (<span id="selectedCountBadge">0</span>)
+              </button>
+            </div>
+          </div>
+
+          <!-- Dynamic Quality Filters & Sorting Toolbar -->
+          <div class="sub-actions-bar">
+            <div id="qualityFilterGroup" class="quality-filter-chips"></div>
+
+            <div class="sort-box">
+              <label for="sortSelect" class="sort-label">Ordenar:</label>
+              <select id="sortSelect" class="select-field">
+                <option value="default">Por Defecto</option>
+                <option value="res-desc">Mayor Resolución</option>
+                <option value="res-asc">Menor Resolución</option>
+                <option value="name-asc">Nombre (A - Z)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Media Grid -->
+          <div id="mediaGrid" class="media-grid"></div>
+        </div>
+      </section>
+
+      <!-- FEATURES PRESENTATION SECTION -->
+      <section id="featuresSection" class="features-section">
+        <div class="section-header-center">
+          <h2 class="section-title">Capacidades Principales</h2>
+          <p class="section-subtitle">Arquitectura diseñada para un scraping profundo, rápido y privado.</p>
+        </div>
+
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon-box"><i class="ri-radar-line"></i></div>
+            <h3 class="feature-heading">Scraping Profundo</h3>
+            <p class="feature-text">Explora subpáginas internas y galerías secundarias para capturar imágenes en calidad original.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-box"><i class="ri-brain-line"></i></div>
+            <h3 class="feature-heading">Visión por IA Local</h3>
+            <p class="feature-text">Clasificación de imágenes basada en redes neuronales convolucionales ejecutadas 100% en el cliente.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-box"><i class="ri-video-line"></i></div>
+            <h3 class="feature-heading">Reproductor & Audio MP3</h3>
+            <p class="feature-text">Visor de video con control de velocidad, modo flotante (PiP) y descarga directa de audio a `.MP3`.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-box"><i class="ri-magic-line"></i></div>
+            <h3 class="feature-heading">Editor Canvas & Colores HEX</h3>
+            <p class="feature-text">Aplica filtros de imagen, rota gráficos y extrae la paleta de 5 colores predominantes copiables.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-box"><i class="ri-file-zip-line"></i></div>
+            <h3 class="feature-heading">Exportación ZIP & PDF</h3>
+            <p class="feature-text">Genera archivos comprimidos en tiempo real o genera reportes en formato PDF con metadatos.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-box"><i class="ri-smartphone-line"></i></div>
+            <h3 class="feature-heading">Aplicación PWA Nativa</h3>
+            <p class="feature-text">Instala la plataforma de forma nativa en tu sistema operativo con 1 solo clic.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+      <div class="footer-left">
+        <img src="assets/logo.svg" alt="MediaScraper" style="width: 20px; height: 20px;" />
+        <span><strong>MediaScraper</strong> — Plataforma 100% Privada & Local</span>
+      </div>
+      <div class="footer-right">
+        © 2026 MediaScraper
+      </div>
+    </footer>
+
+    <!-- Side Drawer -->
+    <aside id="sideDrawer" class="side-drawer">
+      <div class="drawer-header">
+        <h3 class="drawer-title"><i class="ri-information-line"></i> Inspección del Archivo</h3>
+        <button id="closeDrawerBtn" class="icon-btn-close"><i class="ri-close-line"></i></button>
+      </div>
+      <div class="drawer-content">
+        <div id="drawerMediaContainer" class="drawer-media-box"></div>
+
+        <div style="display: flex; gap: 8px; margin-top: -10px; margin-bottom: 12px;">
+          <button id="openFullscreenBtn" class="btn-ghost" style="flex: 1; justify-content: center;">
+            <i class="ri-fullscreen-line"></i> Pantalla Completa
+          </button>
+          <button id="openEditorBtn" class="btn-ghost" style="flex: 1; justify-content: center; color: var(--accent-cyan);">
+            <i class="ri-magic-line"></i> Editar Imagen
+          </button>
+        </div>
+
+        <div class="metadata-card">
+          <div class="meta-row vertical">
+            <span class="meta-lbl"><i class="ri-brain-line"></i> Etiqueta con IA:</span>
+            <div id="drawerAiTagsContainer" class="meta-val" style="display: flex; flex-wrap: wrap; width: 100%; font-size: 0.8rem; margin-top: 4px;">
+              <span class="ai-badge"><i class="ri-loader-4-line spin"></i> Escaneando objeto visual...</span>
+            </div>
+          </div>
+
+          <div class="meta-row">
+            <span class="meta-lbl">Nombre:</span>
+            <span id="drawerFilename" class="meta-val">-</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-lbl">Tipo / Formato:</span>
+            <span id="drawerType" class="meta-val pill-badge">-</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-lbl">Dimensiones:</span>
+            <span id="drawerDimensions" class="meta-val">-</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-lbl">Origen:</span>
+            <span id="drawerContext" class="meta-val">-</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-lbl">Texto Alt:</span>
+            <span id="drawerAlt" class="meta-val">-</span>
+          </div>
+          <div class="meta-row vertical">
+            <span class="meta-lbl">URL de Origen:</span>
+            <div class="copy-box">
+              <input type="text" id="drawerUrlInput" readonly class="copy-input" />
+              <button id="copyUrlBtn" class="icon-btn" title="Copiar URL">
+                <i class="ri-file-copy-line"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: auto;">
+          <a id="drawerDownloadLink" href="#" class="btn-submit full-width" download>
+            <i class="ri-download-2-line"></i> Descargar este Archivo
+          </a>
+        </div>
+      </div>
+    </aside>
+
+    <div id="drawerOverlay" class="drawer-overlay"></div>
+
+    <!-- Image Editor Modal -->
+    <div id="imageEditorModal" class="modal-backdrop">
+      <div class="modal-card" style="max-width: 680px;">
+        <div class="modal-header">
+          <h3 class="modal-title"><i class="ri-magic-line"></i> Editor de Imagen</h3>
+          <button id="closeEditorBtn" class="icon-btn-close"><i class="ri-close-line"></i></button>
+        </div>
+        <div>
+          <div class="editor-viewport">
+            <canvas id="editorCanvas"></canvas>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="font-size: 0.8rem; font-weight: 700; color: var(--accent-cyan); display: block; margin-bottom: 6px;">
+              <i class="ri-palette-line"></i> Paleta HEX Predominante:
+            </label>
+            <div id="hexPaletteContainer" class="color-palette-wrapper"></div>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 6px;">Filtros:</label>
+            <div class="filter-chips-wrapper">
+              <button class="filter-chip active" data-filter="none">Normal</button>
+              <button class="filter-chip" data-filter="grayscale">Escala de Grises</button>
+              <button class="filter-chip" data-filter="sepia">Sepia</button>
+              <button class="filter-chip" data-filter="contrast">Alto Contraste</button>
+              <button class="filter-chip" data-filter="cyberpunk">Neón / Ciberpunk</button>
+              <button class="filter-chip" data-filter="vintage">Vintage</button>
+              <button class="filter-chip" data-filter="invert">Invertir</button>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 16px;">
+            <div style="display: flex; gap: 8px;">
+              <button id="rotateImgBtn" class="btn-ghost"><i class="ri-rotate-right-line"></i> Rotar 90°</button>
+              <button id="resetEditorBtn" class="btn-ghost"><i class="ri-refresh-line"></i> Restablecer</button>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button id="downloadPngBtn" class="btn-submit"><i class="ri-file-download-line"></i> PNG</button>
+              <button id="downloadJpgBtn" class="btn-action-primary"><i class="ri-file-download-line"></i> JPG</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Fullscreen HD Modal -->
+    <div id="fullscreenModal" class="fullscreen-modal">
+      <div class="fullscreen-toolbar">
+        <span id="fsFilename" class="fs-filename">Media HD</span>
+        <div class="fullscreen-controls">
+          <button id="zoomInBtn" class="fs-btn" title="Zoom In"><i class="ri-zoom-in-line"></i></button>
+          <button id="zoomOutBtn" class="fs-btn" title="Zoom Out"><i class="ri-zoom-out-line"></i></button>
+          <button id="zoomResetBtn" class="fs-btn" title="Reset Zoom"><i class="ri-aspect-ratio-line"></i></button>
+          <button id="toggleNativeFSBtn" class="fs-btn" title="Pantalla Completa Nativa"><i class="ri-fullscreen-line"></i></button>
+          <button id="closeFullscreenBtn" class="fs-btn close" title="Cerrar (Esc)"><i class="ri-close-line"></i></button>
+        </div>
+      </div>
+      
+      <div id="fullscreenViewport" class="fullscreen-viewport">
+        <div id="fullscreenMediaContainer" class="fullscreen-media-container"></div>
+      </div>
+    </div>
+
+    <!-- Download Modal -->
+    <div id="exportModal" class="modal-backdrop">
+      <div class="modal-card" style="max-width: 520px;">
+        <div class="modal-header">
+          <h3 class="modal-title"><i class="ri-download-cloud-fill"></i> Descargar Archivos Seleccionados</h3>
+          <button id="closeExportBtn" class="icon-btn-close"><i class="ri-close-line"></i></button>
+        </div>
+        <div>
+          <p style="margin-bottom: 18px; color: var(--text-secondary); font-size: 0.95rem;">
+            Has seleccionado <strong id="exportCountText" style="color: var(--accent-cyan);">0 archivos</strong> para descargar.
+          </p>
+
+          <!-- Animated Download Progress Component -->
+          <div id="exportProgressBox" style="display: none; margin-bottom: 20px;">
+            <div class="showcase-export-details">
+              <div class="export-file-info">
+                <i class="ri-folder-zip-line export-zip-icon"></i>
+                <div>
+                  <div class="export-filename" id="modalProgressTitle">MediaScraper_Paquete.zip</div>
+                  <div class="export-filesize" id="modalProgressDesc">Procesando y descargando archivos seleccionados...</div>
+                </div>
+              </div>
+              <div class="showcase-progress-track">
+                <div class="showcase-progress-fill" id="modalProgressBar"></div>
+              </div>
+              <div class="export-status-footer">
+                <span class="export-dest-path" id="modalProgressPath"><i class="ri-download-line"></i> Descarga activa</span>
+                <span class="export-percent" id="modalProgressPercent">En proceso...</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="exportStatusBanner" class="banner warning-banner" style="display: none; margin-bottom: 16px;">
+            <i class="ri-loader-4-line spin banner-icon"></i>
+            <div>
+              <div class="banner-title" id="exportStatusTitle">Procesando...</div>
+              <div class="banner-desc" id="exportStatusDesc">Descargando los archivos en ZIP.</div>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+            <button id="exportZipBtn" class="btn-submit full-width" style="justify-content: center; padding: 14px; font-size: 1rem;">
+              <i class="ri-file-zip-line"></i> Descargar Paquete ZIP Ahora
+            </button>
+            <button id="generatePdfBtn" class="btn-ghost full-width" style="justify-content: center; padding: 10px; color: var(--accent-cyan);">
+              <i class="ri-file-pdf-2-line"></i> Descargar Catálogo en PDF
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
