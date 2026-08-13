@@ -146,7 +146,7 @@ class ScraperService {
     const internalLinks = new Set();
     let counter = 1;
 
-    const isDirectVideoPageRequest = /\/view_video|\/video\/|\/watch\?|\/v\/|\/play\/|viewkey=/i.test(targetUrl);
+    const isDirectVideoPageRequest = /\/view_video|\/video\/\d+|\/watch\?|\/v\/|\/play\/|viewkey=/i.test(targetUrl);
 
     const addMediaItem = (rawSrc, tagType = 'image', altText = '', metaContext = '', extraAttrs = {}) => {
       const resolved = UrlResolverService.resolveUrl(rawSrc, finalUrl);
@@ -302,7 +302,7 @@ class ScraperService {
           try {
             const linkUrl = new URL(resolvedLink);
             if (linkUrl.hostname === parsedBaseUrl.hostname && resolvedLink !== finalUrl && !resolvedLink.includes('#')) {
-              if (/\/view_video|\/video\/|\/watch|\/v\/|\/play|\/item\/|\/media\//i.test(resolvedLink)) {
+              if (/\/view_video|\/video\/\d+|\/watch|\/v\/|\/play|\/item\/|\/media\//i.test(resolvedLink)) {
                 priorityVideoLinks.add(resolvedLink);
               } else {
                 otherInternalLinks.add(resolvedLink);
