@@ -1,4 +1,4 @@
-const { ZipArchive } = require('archiver');
+const archiver = require('archiver');
 const axios = require('axios');
 const https = require('https');
 const { DEFAULT_USER_AGENT } = require('../../config/constants');
@@ -15,7 +15,7 @@ class ZipExportService {
    * Genera y transmite un archivo ZIP con los elementos multimedia hacia la respuesta HTTP
    */
   static async streamZip(items, res) {
-    const archive = new ZipArchive({
+    const archive = archiver('zip', {
       zlib: { level: 5 }
     });
 

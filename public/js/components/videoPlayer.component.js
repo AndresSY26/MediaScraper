@@ -15,14 +15,15 @@ export class CustomVideoPlayer {
     this.isLooping = false;
 
     this.init();
-  }
-
-  init() {
+  }  init() {
     this.container = document.createElement('div');
     this.container.className = 'custom-video-player paused loading';
 
+    const isHls = (this.videoSrc.includes('.m3u8') || this.videoSrc.includes('/hls/'));
+    const initialVideoSrcAttr = isHls ? '' : `src="${this.videoSrc}"`;
+
     this.container.innerHTML = `
-      <video src="${this.videoSrc}" preload="metadata" playsinline crossorigin="anonymous"></video>
+      <video ${initialVideoSrcAttr} preload="metadata" playsinline crossorigin="anonymous"></video>
 
       <!-- PiP Badge -->
       <div class="pip-active-badge">
@@ -129,6 +130,17 @@ export class CustomVideoPlayer {
     `;
 
     this.video = this.container.querySelector('video');
+
+    if (window.Hls && Hls.isSupported() && (this.videoSrc.includes('.m3u8') || this.videoSrc.includes('/hls/'))) {
+      const hls = new Hls({
+        maxBufferLength: 30,
+        maxMaxBufferLength: 600,
+        enableWorker: true
+      });
+      hls.loadSource(this.videoSrc);
+      hls.attachMedia(this.video);
+    }
+
     this.setupEvents();
   }
 

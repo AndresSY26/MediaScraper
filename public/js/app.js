@@ -90,22 +90,26 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.isSocialMedia) {
         showSocialWarning(data.message || 'Aún no tenemos soporte para redes sociales específicas.');
         return;
-      }
-
-      currentScrapedData = {
+      }      currentScrapedData = {
         title: data.title || 'Contenido Extraído',
         url: data.url
       };
 
-      scrapedTitle.textContent = `${data.title || 'Contenido Extraído'} ${isDeepScrape ? '(Scraping Profundo Activado)' : ''}`;
-      scrapedUrlLink.innerHTML = `${data.url} <i class="ri-external-link-line"></i>`;
-      scrapedUrlLink.href = data.url;
+      if (scrapedTitle) {
+        scrapedTitle.textContent = data.isDirectVideoPage 
+          ? `📹 Extractor de Video Directo: ${data.title || 'Video Extraído'}`
+          : `${data.title || 'Contenido Extraído'} ${isDeepScrape ? '(Scraping Profundo Activado)' : ''}`;
+      }
+      if (scrapedUrlLink) {
+        scrapedUrlLink.innerHTML = `${data.url} <i class="ri-external-link-line"></i>`;
+        scrapedUrlLink.href = data.url;
+      }
 
       // Registrar en el historial local de búsquedas
       history.addEntry(data.url, data.title, data.stats);
 
-      // Renderizar los elementos multimedia
-      gallery.setItems(data.items, data.stats);
+      // Renderizar los elementos multimedia y la tarjeta de video principal
+      gallery.setItems(data.items, data.stats, data.mainVideo, data.isDirectVideoPage);
       resultsSection.style.display = 'block';
       resultsSection.classList.add('active');
 
@@ -176,20 +180,16 @@ document.addEventListener('DOMContentLoaded', () => {
     openExportModalBtn.addEventListener('click', () => exportModal.open());
   }
 
-  // Manejo de Envío del Formulario y Botón de Scraping
+  // Manejo de Envío del Formulario
   if (scrapeForm) {
     scrapeForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      e.stopPropagation();
       performScrape(urlInput.value);
     });
   }
 
-  if (scrapeBtn) {
-    scrapeBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      performScrape(urlInput.value);
-    });
-  }
+
 
   function setLoadingState(isLoading) {
     if (isLoading) {

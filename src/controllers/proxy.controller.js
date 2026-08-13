@@ -10,15 +10,44 @@ class ProxyController {
     const mediaUrl = req.query.url;
     if (!mediaUrl) return res.status(400).send('URL requerida');
 
-    try {
-      // Reenviar encabezados Range si el navegador los solicita (HTTP 206 Partial Content)
-      const requestHeaders = {
+    try {      const parsedUrl = new URL(mediaUrl);
+      let originReferer = `${parsedUrl.protocol}//${parsedUrl.hostname}/`;
+
+      if (parsedUrl.hostname.includes('phncdn.com') || parsedUrl.hostname.includes('pornhub')) {
+        originReferer = 'https://es.pornhub.com/';
+      }      const requestHeaders = {
         'User-Agent': DEFAULT_USER_AGENT,
-        'Referer': mediaUrl
+        'Referer': originReferer,
+        'Origin': originReferer.slice(0, -1)
       };
 
       if (req.headers.range) {
         requestHeaders['Range'] = req.headers.range;
+      }
+
+      // Si es un manifiesto HLS (.m3u8), reescribir URLs relativas para que pasen por el proxy
+      if (mediaUrl.includes('.m3u8')) {
+        const m3u8Res = await axios.get(mediaUrl, {
+          headers: requestHeaders,
+          timeout: 15000,
+          responseType: 'text'
+        });
+
+        const baseUrl = mediaUrl.substring(0, mediaUrl.lastIndexOf('/') + 1);
+        const lines = (m3u8Res.data || '').split('\n');
+        const rewritten = lines.map(line => {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) return line;
+          let absUrl = trimmed;
+          if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+            absUrl = new URL(trimmed, baseUrl).href;
+          }
+          return `/api/proxy?url=${encodeURIComponent(absUrl)}`;
+        }).join('\n');
+
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+        res.setHeader('Cache-Control', 'no-cache');
+        return res.send(rewritten);
       }
 
       const response = await axios({
@@ -26,14 +55,12 @@ class ProxyController {
         url: mediaUrl,
         responseType: 'stream',
         headers: requestHeaders,
-        timeout: 20000,
+        timeout: 25000,
         validateStatus: (status) => status >= 200 && status < 400
       });
 
-      // Establecer código de respuesta (200 OK o 206 Partial Content)
       res.status(response.status);
 
-      // Reenviar encabezados de contenido y streaming por rangos
       const headersToForward = [
         'content-type',
         'content-length',
@@ -48,7 +75,6 @@ class ProxyController {
         }
       });
 
-      // Si el servidor de origen no responde accept-ranges, forzarlo para el navegador
       if (!res.getHeader('accept-ranges')) {
         res.setHeader('Accept-Ranges', 'bytes');
       }
@@ -57,7 +83,6 @@ class ProxyController {
         res.setHeader('Cache-Control', 'public, max-age=86400');
       }
 
-      // Stream continuo de datos de video/imagen hacia el cliente
       response.data.pipe(res);
 
       req.on('close', () => {
@@ -67,9 +92,8 @@ class ProxyController {
       });
 
     } catch (err) {
-      if (res.headersSent) {
-        return;
-      }
+      if (res.headersSent) return;
+      console.error('Proxy stream error:', err.message);
       res.status(500).send('Error en la transmisión de medios proxy');
     }
   }

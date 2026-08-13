@@ -30,17 +30,18 @@ class ScrapeController {
 
       // 2. Scraping
       const result = await ScraperService.scrapeMediaFromUrl(targetUrl, Boolean(isDeepScrape));
-
       return res.json({
         success: true,
         isSocialMedia: false,
         url: result.finalUrl,
         domain: result.domain,
         title: result.pageTitle,
+        hasMainVideo: result.hasMainVideo || false,
+        mainVideo: result.mainVideo || null,
+        isDirectVideoPage: result.isDirectVideoPage || false,
         stats: result.stats,
         items: result.items
       });
-
     } catch (error) {
       next(error);
     }

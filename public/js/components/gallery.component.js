@@ -1,3 +1,5 @@
+import { CustomVideoPlayer } from './videoPlayer.component.js';
+
 /**
  * Componente Galería de Contenidos Multimedia con Generador Dinámico de Filtros Basado en los Resultados Reales Extraídos
  */
@@ -40,9 +42,9 @@ export class GalleryComponent {
     }
 
     // Category Tabs
-    document.querySelectorAll('.tab-btn').forEach(btn => {
+    document.querySelectorAll('.tab-item').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
         btn.classList.add('active');
         this.currentFilter = btn.dataset.filter;
         this.render();
@@ -50,16 +52,28 @@ export class GalleryComponent {
     });
   }
 
-  setItems(items, stats) {
+  setItems(items, stats, mainVideo, isDirectVideoPage = false) {
     this.allItems = items || [];
     this.selectedIds.clear();
     this.qualityFilter = 'all';
+    this.isDirectVideoPage = Boolean(isDirectVideoPage || (mainVideo && mainVideo.qualities && mainVideo.qualities.length > 0 && items.length === 0));
 
     if (this.countAll) this.countAll.textContent = stats.total;
     if (this.countImages) this.countImages.textContent = stats.images;
     if (this.countVideos) this.countVideos.textContent = stats.videos;
 
-    document.querySelectorAll('.tab-btn').forEach(btn => {
+    const actionsBar = document.querySelector('.actions-bar');
+    const subActionsBar = document.querySelector('.sub-actions-bar');
+
+    if (this.isDirectVideoPage) {
+      if (actionsBar) actionsBar.style.display = 'none';
+      if (subActionsBar) subActionsBar.style.display = 'none';
+    } else {
+      if (actionsBar) actionsBar.style.display = 'flex';
+      if (subActionsBar) subActionsBar.style.display = 'flex';
+    }
+
+    document.querySelectorAll('.tab-item').forEach(btn => {
       if (btn.dataset.filter === this.currentFilter) {
         btn.classList.add('active');
       } else {
@@ -67,8 +81,100 @@ export class GalleryComponent {
       }
     });
 
-    this.renderDynamicQualityFilters();
+    this.renderMainVideoHero(mainVideo);
+    if (!this.isDirectVideoPage) {
+      this.renderDynamicQualityFilters();
+    } else if (this.qualityFilterGroup) {
+      this.qualityFilterGroup.innerHTML = '';
+    }
     this.render();
+  }
+  renderMainVideoHero(mainVideo) {
+    const heroSection = document.getElementById('mainVideoHeroSection');
+    if (!heroSection) return;
+
+    if (!mainVideo || !mainVideo.qualities || mainVideo.qualities.length === 0) {
+      heroSection.style.display = 'none';
+      heroSection.innerHTML = '';
+      return;
+    }
+
+    const videoTitle = mainVideo.title || 'Video Extraído';
+    const posterUrl = mainVideo.poster || '';
+
+    const qualitiesRowsHTML = mainVideo.qualities.map(q => {
+      const isUltra = (q.width && q.width >= 1920) || (q.height && q.height >= 1080);
+      const isHd = (q.width && q.width >= 1280) || (q.height && q.height >= 720);
+      const tagClass = isUltra ? 'ultra' : (isHd ? 'hd' : 'sd');
+
+      return `
+        <div class="quality-download-row">
+          <div class="quality-info">
+            <span class="quality-tag ${tagClass}">
+              <i class="ri-video-download-line"></i> ${q.quality}
+            </span>
+            <span class="quality-meta">${q.width && q.height ? `${q.width}×${q.height} px` : 'Calidad Video Stream'} • ${q.extension || 'MP4'}</span>
+          </div>
+          <div class="quality-actions">
+            <a href="${q.downloadUrl}" class="btn-quality-download" download="${q.filename}">
+              <i class="ri-download-2-line"></i> Descargar ${q.quality}
+            </a>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const bestStreamUrl = mainVideo.bestStreamUrl || '';
+    const audioDownloadUrl = `/api/download?url=${encodeURIComponent(mainVideo.bestStreamDirectUrl || bestStreamUrl)}&filename=${encodeURIComponent(videoTitle.substring(0, 40).replace(/[^a-zA-Z0-9]/g, '_') + '_audio.mp3')}`;
+
+    heroSection.innerHTML = `
+      <div class="main-video-card">
+        <div class="main-video-header">
+          <span class="video-badge"><i class="ri-movie-fill"></i> Extractor de Video Principal</span>
+          <span class="video-domain-badge"><i class="ri-global-line"></i> ${mainVideo.domain || ''}</span>
+        </div>
+        
+        <div class="main-video-content-grid">
+          <div class="main-video-player-box" id="mainVideoPlayerBox">
+            ${bestStreamUrl ? '' : `<img src="${posterUrl}" style="width: 100%; height: 100%; object-fit: cover;" />`}
+          </div>
+          
+          <div class="main-video-details-box">
+            <h2 class="main-video-title">${videoTitle}</h2>
+            
+            <div class="qualities-section-header">
+              <span><i class="ri-hd-line"></i> Calidades de Video Disponibles para Descarga Directa:</span>
+            </div>
+
+            <div class="qualities-download-list">
+              ${qualitiesRowsHTML}
+
+              <!-- Audio MP3 Option -->
+              <div class="quality-download-row audio-row">
+                <div class="quality-info">
+                  <span class="quality-tag audio"><i class="ri-music-2-fill"></i> Audio MP3</span>
+                  <span class="quality-meta">Extraer sólo la pista de audio</span>
+                </div>
+                <div class="quality-actions">
+                  <a href="${audioDownloadUrl}" class="btn-audio-download" download>
+                    <i class="ri-music-line"></i> Extraer Audio (.MP3)
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const playerBox = heroSection.querySelector('#mainVideoPlayerBox');
+    if (playerBox && bestStreamUrl) {
+      playerBox.innerHTML = '';
+      const player = new CustomVideoPlayer(bestStreamUrl);
+      playerBox.appendChild(player.getElement());
+    }
+
+    heroSection.style.display = 'block';
   }
 
   renderDynamicQualityFilters() {
@@ -175,8 +281,23 @@ export class GalleryComponent {
   }
 
   render() {
-    const itemsToRender = this.getFilteredItems();
     this.mediaGrid.innerHTML = '';
+
+    if (this.isDirectVideoPage) {
+      this.mediaGrid.innerHTML = `
+        <div style="grid-column: 1 / -1; background: var(--bg-surface); border: 1px solid var(--border-cyan); border-radius: var(--radius-md); padding: 36px 24px; text-align: center; box-shadow: 0 0 25px rgba(6, 182, 212, 0.12);">
+          <div style="font-size: 42px; color: var(--accent-cyan); margin-bottom: 12px;"><i class="ri-checkbox-circle-fill"></i></div>
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #ffffff; margin-bottom: 8px;">Modo Extractor de Video Directo Activado</h3>
+          <p style="font-size: 0.9rem; color: var(--text-muted); max-width: 580px; margin: 0 auto; line-height: 1.5;">
+            El video y sus calidades (4K Ultra HD, Full HD, HD, SD y Audio MP3) fueron extraídos limpiamente sin basura ni imágenes de la página. Elige la resolución deseada en la tarjeta superior para iniciar la descarga inmediata.
+          </p>
+        </div>
+      `;
+      this.updateSelectionUI();
+      return;
+    }
+
+    const itemsToRender = this.getFilteredItems();
 
     if (itemsToRender.length === 0) {
       this.mediaGrid.innerHTML = `
@@ -188,7 +309,6 @@ export class GalleryComponent {
       this.updateSelectionUI();
       return;
     }
-
     const fallbackSvg = "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200' viewBox='0 0 300 200'%3E%3Crect width='100%25' height='100%25' fill='%231e293b'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2364748b' font-family='sans-serif' font-size='14'%3ESin Vista Previa%3C/text%3E%3C/svg%3E";
 
     itemsToRender.forEach((item, index) => {
