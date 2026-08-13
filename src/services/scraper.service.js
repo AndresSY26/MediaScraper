@@ -90,16 +90,26 @@ class ScraperService {
       };
     }
 
-    const response = await axios.get(targetUrl, {
-      headers: {
-        'User-Agent': DEFAULT_USER_AGENT,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-        'Cache-Control': 'no-cache'
-      },
-      timeout: 15000,
-      maxRedirects: 5
-    });
+    let response;
+    try {
+      response = await axios.get(targetUrl, {
+        headers: {
+          'User-Agent': DEFAULT_USER_AGENT,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+          'Cache-Control': 'no-cache'
+        },
+        timeout: 15000,
+        maxRedirects: 5
+      });
+    } catch (error) {
+      if (error.response && error.response.status === 404) {
+        throw new Error(`La página o video no existe (Error 404). Verifica que el enlace sea correcto y siga disponible: ${targetUrl}`);
+      } else if (error.response && error.response.status === 403) {
+        throw new Error(`Acceso denegado (Error 403). La página está bloqueando la extracción automática: ${targetUrl}`);
+      }
+      throw new Error(`Fallo al acceder a la URL: ${error.message}`);
+    }
 
     const contentType = response.headers['content-type'] || '';
     if (contentType.startsWith('image/') || contentType.startsWith('video/')) {
