@@ -93,7 +93,7 @@ export class GalleryComponent {
     const heroSection = document.getElementById('mainVideoHeroSection');
     if (!heroSection) return;
 
-    if (!mainVideo || !mainVideo.qualities || mainVideo.qualities.length === 0) {
+    if (!this.isDirectVideoPage || !mainVideo || !mainVideo.qualities || mainVideo.qualities.length === 0) {
       heroSection.style.display = 'none';
       heroSection.innerHTML = '';
       return;
