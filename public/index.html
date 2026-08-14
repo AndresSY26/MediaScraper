@@ -11,6 +11,10 @@
   <meta name="theme-color" content="#090d16" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
 
+  <!-- Google AdSense Verification & Script -->
+  <meta name="google-adsense-account" content="ca-pub-2369620196115106">
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2369620196115106" crossorigin="anonymous"></script>
+
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
 
@@ -25,6 +29,9 @@
   <!-- TensorFlow.js & MobileNet -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  
+  <!-- Tesseract.js (Google Lens OCR Engine) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   
   <!-- HLS.js for Instant Streaming Video Playback -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -427,6 +434,22 @@
           </div>
         </div>
 
+        <!-- Google Lens OCR Section -->
+        <div id="drawerOcrSection" class="drawer-ocr-section" style="display: none;">
+          <button id="runOcrBtn" class="btn-ghost full-width ocr-trigger-btn">
+            <i class="ri-sparkling-fill"></i> Escanear Texto en la Imagen
+          </button>
+          <div id="ocrResultBox" class="ocr-result-box" style="display: none;">
+            <div class="ocr-box-header">
+              <span class="ocr-box-title"><i class="ri-file-text-line"></i> Texto Extraído (OCR):</span>
+              <button id="copyOcrTextBtn" class="icon-btn-sm" title="Copiar Texto">
+                <i class="ri-file-copy-line"></i>
+              </button>
+            </div>
+            <textarea id="ocrTextarea" class="ocr-textarea" readonly placeholder="El texto detectado aparecerá aquí..."></textarea>
+          </div>
+        </div>
+
         <div style="margin-top: auto;">
           <a id="drawerDownloadLink" href="#" class="btn-submit full-width" download>
             <i class="ri-download-2-line"></i> Descargar este Archivo
@@ -488,6 +511,7 @@
       <div class="fullscreen-toolbar">
         <span id="fsFilename" class="fs-filename">Media HD</span>
         <div class="fullscreen-controls">
+          <button id="fullscreenLensBtn" class="fs-btn lens-btn" title="Escanear Texto con Google Lens OCR" style="display: none;"><i class="ri-sparkling-fill"></i></button>
           <button id="zoomInBtn" class="fs-btn" title="Zoom In"><i class="ri-zoom-in-line"></i></button>
           <button id="zoomOutBtn" class="fs-btn" title="Zoom Out"><i class="ri-zoom-out-line"></i></button>
           <button id="zoomResetBtn" class="fs-btn" title="Reset Zoom"><i class="ri-aspect-ratio-line"></i></button>
@@ -498,6 +522,19 @@
       
       <div id="fullscreenViewport" class="fullscreen-viewport">
         <div id="fullscreenMediaContainer" class="fullscreen-media-container"></div>
+        
+        <!-- Fullscreen Google Lens OCR Floating Panel -->
+        <div id="fullscreenLensPanel" class="fullscreen-lens-panel">
+          <div class="lens-panel-header">
+            <span class="lens-panel-title"><i class="ri-sparkling-fill"></i> Google Lens OCR</span>
+            <div style="display: flex; gap: 6px;">
+              <button id="copyFullscreenLensBtn" class="lens-btn-action" title="Copiar Texto"><i class="ri-file-copy-line"></i> Copiar</button>
+              <button id="closeLensPanelBtn" class="lens-btn-action close" title="Cerrar Panel"><i class="ri-close-line"></i></button>
+            </div>
+          </div>
+          <div id="lensStatusText" class="lens-status-text" style="display: none;"></div>
+          <textarea id="fullscreenLensTextarea" class="fullscreen-lens-textarea" readonly placeholder="El texto detectado aparecerá aquí..."></textarea>
+        </div>
       </div>
     </div>
 
@@ -509,7 +546,7 @@
           <button id="closeExportBtn" class="icon-btn-close"><i class="ri-close-line"></i></button>
         </div>
         <div>
-          <p style="margin-bottom: 18px; color: var(--text-secondary); font-size: 0.95rem;">
+          <p id="exportCountParagraph" style="margin-bottom: 18px; color: var(--text-secondary); font-size: 0.95rem;">
             Has seleccionado <strong id="exportCountText" style="color: var(--accent-cyan);">0 archivos</strong> para descargar.
           </p>
 

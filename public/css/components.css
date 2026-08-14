@@ -193,7 +193,8 @@
   z-index: 120;
 }
 
-.history-menu.show {
+.history-menu.show,
+.history-menu.active {
   display: block;
 }
 

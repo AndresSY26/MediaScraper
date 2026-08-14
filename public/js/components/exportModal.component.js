@@ -15,6 +15,7 @@ export class ExportModalComponent {
     this.generatePdfBtn = document.getElementById('generatePdfBtn');
 
     this.targetFolderPath = document.getElementById('targetFolderPath');
+    this.exportCountParagraph = document.getElementById('exportCountParagraph');
     this.exportCountText = document.getElementById('exportCountText');
     this.statusBanner = document.getElementById('exportStatusBanner');
     this.statusIcon = document.getElementById('exportStatusIcon');
@@ -67,8 +68,10 @@ export class ExportModalComponent {
       modalTitle.innerHTML = `<i class="ri-download-cloud-fill"></i> Descargar Archivos Seleccionados`;
     }
 
-    if (this.exportCountText) {
-      this.exportCountText.innerHTML = `Has seleccionado <strong style="color: var(--accent-cyan);">${selectedItems.length} archivos</strong> para descargar.`;
+    if (this.exportCountParagraph) {
+      this.exportCountParagraph.innerHTML = `Has seleccionado <strong id="exportCountText" style="color: var(--accent-cyan);">${selectedItems.length} archivos</strong> para descargar.`;
+    } else if (this.exportCountText) {
+      this.exportCountText.textContent = `${selectedItems.length} archivos`;
     }
 
     if (this.exportZipBtn) {
@@ -277,8 +280,10 @@ export class ExportModalComponent {
             modalTitle.innerHTML = `<i class="ri-checkbox-circle-fill" style="color: var(--accent-emerald);"></i> ¡Descarga Completada con Éxito!`;
           }
 
-          if (this.exportCountText) {
-            this.exportCountText.innerHTML = `Tus <strong style="color: var(--accent-emerald);">${selectedItems.length} archivos</strong> se han comprimido y descargado correctamente.`;
+          if (this.exportCountParagraph) {
+            this.exportCountParagraph.innerHTML = `Tus <strong style="color: var(--accent-emerald);">${selectedItems.length} archivos</strong> se han comprimido y descargado correctamente.`;
+          } else if (this.exportCountText) {
+            this.exportCountText.textContent = `${selectedItems.length} archivos`;
           }
 
           if (progressBar) {

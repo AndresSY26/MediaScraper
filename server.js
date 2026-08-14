@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');
 const path = require('path');
 const config = require('./config');
 const apiRoutes = require('./src/routes');
@@ -7,6 +8,7 @@ const errorHandler = require('./src/middlewares/errorHandler.middleware');
 const app = express();
 
 // Middlewares Globales
+app.use(cors());
 app.use(express.json({ limit: config.maxBodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: config.maxBodyLimit }));
 

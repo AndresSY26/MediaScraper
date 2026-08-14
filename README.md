@@ -160,45 +160,52 @@ MediaScraper/
    ```
 
 4. **Acceder a la aplicación**:
-   Abre tu navegador e ingresa a: `http://localhost:3000`
+   Abre tu navegador e ingresa a: `http://localhost:3005`
 
 ---
 
 ## 📡 Referencia de API Backend
 
 ### 1. `POST /api/scrape`
-Analiza una URL remota y extrae todas las imágenes y videos accesibles.
-- **Body**: `{ "url": "https://ejemplo.com" }`
+Analiza una URL remota y extrae todas las imágenes, videos accesibles y variantes de calidad.
+- **Body**: `{ "url": "https://ejemplo.com", "isDeepScrape": false }`
 - **Respuesta JSON**:
   ```json
   {
-    "success": true,
     "url": "https://ejemplo.com",
     "title": "Título de la página",
-    "totalCount": 12,
-    "media": [
+    "isDirectVideoPage": false,
+    "stats": { "total": 12, "images": 10, "videos": 2 },
+    "items": [
       {
-        "id": "media-1",
+        "id": "media-0",
         "url": "https://ejemplo.com/imagen.jpg",
-        "proxyUrl": "/api/proxy-media?url=...",
+        "proxyUrl": "/api/proxy?url=...",
         "type": "image",
         "extension": "jpg",
-        "filename": "imagen.jpg"
+        "filename": "imagen.jpg",
+        "width": 1920,
+        "height": 1080
       }
-    ]
+    ],
+    "mainVideo": null
   }
   ```
 
-### 2. `GET /api/proxy-media`
-Proxy seguro para eludir restricciones de CORS y servir medios de forma local.
+### 2. `GET /api/proxy`
+Proxy de streaming anti-CORS con soporte para *HTTP 206 Partial Content (Range Requests)* y reescritura de manifiestos HLS (`.m3u8`).
 - **Query Params**: `?url=https://...`
 
-### 3. `POST /api/download-zip`
-Empaqueta y transmite múltiples archivos seleccionados en un archivo ZIP.
-- **Body**: `{ "urls": ["https://..."], "packageName": "MediaScraper_Paquete.zip" }`
+### 3. `POST /api/export-zip`
+Empaqueta y transmite en tiempo real una colección de archivos comprimidos en un archivo ZIP sin almacenar en disco.
+- **Body**: `{ "items": [{ "url": "https://...", "filename": "archivo.jpg" }] }`
 
-### 4. `GET /api/download`
-Fuerza la descarga individual de un archivo con encabezados `Content-Disposition`.
+### 4. `POST /api/export`
+Guarda una colección de archivos seleccionados directamente en un directorio local del equipo.
+- **Body**: `{ "targetDirectory": "C:\\Downloads\\ScrapedMedia", "items": [...] }`
+
+### 5. `GET /api/download`
+Fuerza la descarga directa de un archivo con encabezados `Content-Disposition: attachment` y ensamblado de transmisiones HLS a MP4.
 - **Query Params**: `?url=https://...&filename=nombre.ext`
 
 ---
