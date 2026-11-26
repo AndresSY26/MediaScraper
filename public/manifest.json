@@ -1,18 +1,25 @@
 {
   "name": "MediaScraper",
   "short_name": "MediaScraper",
-  "description": "Plataforma moderna de web scraping para extracción y previsualización de multimedia",
+  "description": "Plataforma moderna de web scraping para extracción, inspección con IA y previsualización multimedia",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#080c14",
-  "theme_color": "#080c14",
+  "background_color": "#040711",
+  "theme_color": "#040711",
   "orientation": "any",
   "icons": [
     {
-      "src": "assets/logo.svg",
+      "src": "/assets/logo.svg",
       "sizes": "192x192 512x512",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/logo.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ]
 }

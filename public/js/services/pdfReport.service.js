@@ -1,10 +1,9 @@
+import { escapeHtml, sanitizeHref } from '../utils/dom.util.js';
+
 /**
- * Servicio Generador de Catálogos y Reportes Multimedia Ejecutivos en el Navegador
+ * Servicio Generador de Catálogos y Reportes Multimedia Ejecutivos en el Navegador (Sanitizado contra XSS)
  */
 export class PdfReportService {
-  /**
-   * Genera un catálogo visual interactivo de alta gama para previsualizar, guardar o descargar en PDF
-   */
   static generateCatalogPdf(title, pageUrl, items) {
     const reportWindow = window.open('', '_blank');
     if (!reportWindow) {
@@ -12,10 +11,13 @@ export class PdfReportService {
       return;
     }
 
+    const safeTitle = escapeHtml(title || 'Catálogo Multimedia');
+    const safePageUrl = escapeHtml(pageUrl || 'N/A');
+    const safeDate = escapeHtml(new Date().toLocaleString());
+
     const imageCount = items.filter(i => i.type === 'image').length;
     const videoCount = items.filter(i => i.type === 'video').length;
 
-    // Dividir exactamente en grupos de 4 elementos por página (Grid 2x2)
     const ITEMS_PER_PAGE = 4;
     const itemPages = [];
     for (let i = 0; i < items.length; i += ITEMS_PER_PAGE) {
@@ -25,21 +27,33 @@ export class PdfReportService {
     const pagesHTML = itemPages.map((pageItems, pageIdx) => {
       const cardsHTML = pageItems.map((item, itemIdxInPage) => {
         const globalIdx = pageIdx * ITEMS_PER_PAGE + itemIdxInPage + 1;
-        const resText = (item.width && item.height) ? `${item.width}×${item.height} px` : (item.type === 'video' ? 'Video HD' : 'Imagen HD');
+        const resText = (item.width && item.height)
+          ? `${escapeHtml(item.width)}×${escapeHtml(item.height)} px`
+          : (item.type === 'video' ? 'Video HD' : 'Imagen HD');
         const isVideo = item.type === 'video';
+        const safeMediaSrc = escapeHtml(sanitizeHref(item.proxyUrl || item.url));
+        const safeItemUrlHref = escapeHtml(sanitizeHref(item.url));
+        const safeItemUrlText = escapeHtml(item.url || '');
+        const safeFilename = escapeHtml(item.filename || `recurso_${globalIdx}`);
+        const safeExt = escapeHtml(item.extension || (isVideo ? 'MP4' : 'JPG'));
+        const safeType = escapeHtml(String(item.type || 'media').toUpperCase());
+        const safeContext = escapeHtml(item.context || 'Origen Web');
+        const safeTags = Array.isArray(item.aiTags) && item.aiTags.length > 0
+          ? item.aiTags.map(t => escapeHtml(t)).join(' • ')
+          : '';
 
         const previewMediaHTML = isVideo
           ? `
             <div class="card-media-wrapper">
-              <video src="${item.proxyUrl || item.url}#t=1" preload="metadata" muted style="width: 100%; height: 100%; object-fit: cover;"></video>
-              <span class="type-badge video"><i class="ri-play-circle-fill"></i> ${item.extension}</span>
+              <video src="${safeMediaSrc}#t=1" preload="metadata" muted style="width: 100%; height: 100%; object-fit: cover;"></video>
+              <span class="type-badge video"><i class="ri-play-circle-fill"></i> ${safeExt}</span>
               <span class="res-badge"><i class="ri-video-line"></i> ${resText}</span>
             </div>
           `
           : `
             <div class="card-media-wrapper">
-              <img src="${item.proxyUrl || item.url}" alt="${item.filename}" loading="lazy" />
-              <span class="type-badge"><i class="ri-image-line"></i> ${item.extension}</span>
+              <img src="${safeMediaSrc}" alt="${safeFilename}" loading="eager" crossorigin="anonymous" />
+              <span class="type-badge"><i class="ri-image-line"></i> ${safeExt}</span>
               <span class="res-badge">${resText}</span>
             </div>
           `;
@@ -50,20 +64,20 @@ export class PdfReportService {
             <div class="card-details">
               <div class="card-header-row">
                 <span class="item-index">#${globalIdx}</span>
-                <span class="item-name" title="${item.filename}">${item.filename}</span>
+                <span class="item-name" title="${safeFilename}">${safeFilename}</span>
               </div>
               <div class="card-meta-row">
-                <span class="meta-pill type">${item.type.toUpperCase()} (${item.extension})</span>
-                <span class="meta-pill context">${item.context || 'Origen Web'}</span>
+                <span class="meta-pill type">${safeType} (${safeExt})</span>
+                <span class="meta-pill context">${safeContext}</span>
               </div>
-              ${item.aiTags && item.aiTags.length > 0 ? `
+              ${safeTags ? `
                 <div class="card-ai-tags">
-                  <i class="ri-brain-line"></i> ${item.aiTags.join(' • ')}
+                  <i class="ri-brain-line"></i> ${safeTags}
                 </div>
               ` : ''}
               <div class="card-url-box">
                 <span class="url-lbl">URL de Origen:</span>
-                <a href="${item.url}" target="_blank" rel="noopener" class="url-link">${item.url}</a>
+                <a href="${safeItemUrlHref}" target="_blank" rel="noopener noreferrer" class="url-link">${safeItemUrlText}</a>
               </div>
             </div>
           </div>
@@ -73,7 +87,7 @@ export class PdfReportService {
       return `
         <div class="pdf-page-block">
           <div class="page-header-mini">
-            <span class="page-title-mini"><i class="ri-radar-fill"></i> ${title}</span>
+            <span class="page-title-mini"><i class="ri-radar-fill"></i> ${safeTitle}</span>
             <span class="page-num-pill">Hoja ${pageIdx + 1} de ${itemPages.length} (4 por Hoja)</span>
           </div>
           <div class="catalog-grid-2x2">
@@ -89,8 +103,8 @@ export class PdfReportService {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Catálogo Ejecutivo Multimedia - ${title}</title>
-        <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+        <title>Catálogo Ejecutivo Multimedia - ${safeTitle}</title>
+        <link href="https://cdn.jsdelivr.net/npm/remixicon@4.9.0/fonts/remixicon.css" rel="stylesheet">
         <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
         <style>
@@ -112,7 +126,6 @@ export class PdfReportService {
             padding: 0;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
-            color-adjust: exact !important;
           }
 
           body {
@@ -125,7 +138,12 @@ export class PdfReportService {
             line-height: 1.5;
           }
 
-          /* Sticky Top Action Bar */
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+          .spin { display: inline-block; animation: spin 0.9s linear infinite; }
+
           .executive-topbar {
             position: fixed;
             top: 0;
@@ -197,18 +215,12 @@ export class PdfReportService {
             box-shadow: 0 0 15px rgba(99, 102, 241, 0.4);
           }
 
-          .topbar-btn.primary:hover {
-            box-shadow: 0 0 25px rgba(168, 85, 247, 0.6);
-          }
-
-          /* Main Container */
           .catalog-container {
             max-width: 1200px;
             margin: 0 auto;
             padding: 0 24px;
           }
 
-          /* Header Banner */
           .catalog-header {
             background: var(--bg-surface);
             border: 1px solid var(--border-color);
@@ -259,14 +271,12 @@ export class PdfReportService {
             gap: 6px;
           }
 
-          /* Structuring 4 Items Per PDF Page */
           .pdf-page-block {
             break-after: page !important;
             page-break-after: always !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
             margin-bottom: 32px;
-            box-sizing: border-box;
           }
 
           .pdf-page-block:last-child {
@@ -303,7 +313,6 @@ export class PdfReportService {
             border-radius: 12px;
           }
 
-          /* 2x2 Grid Layout */
           .catalog-grid-2x2 {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -319,7 +328,6 @@ export class PdfReportService {
             flex-direction: column;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
-            -webkit-column-break-inside: avoid !important;
           }
 
           .card-media-wrapper {
@@ -410,6 +418,7 @@ export class PdfReportService {
           .card-meta-row {
             display: flex;
             gap: 6px;
+            flex-wrap: wrap;
           }
 
           .meta-pill {
@@ -444,36 +453,19 @@ export class PdfReportService {
             text-decoration: none;
           }
 
-          .url-link:hover {
-            text-decoration: underline;
-          }
-
-          /* Print Preserving Full Dark Mode Colors & Layout */
           @media print {
-            * {
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-              color-adjust: exact !important;
-            }
             .executive-topbar { display: none !important; }
             body { padding-top: 0; background-color: #040711 !important; color: #f8fafc !important; }
-            .catalog-header { background: #0b0f19 !important; border-color: rgba(255, 255, 255, 0.12) !important; color: #fff !important; }
-            .catalog-title { color: #ffffff !important; }
             .pdf-page-block { margin-bottom: 0 !important; }
-            .catalog-card { background: #0b0f19 !important; border-color: rgba(255, 255, 255, 0.12) !important; }
-            .item-name { color: #ffffff !important; }
-            .meta-pill { background: rgba(255, 255, 255, 0.05) !important; color: #94a3b8 !important; }
           }
 
           @media (max-width: 768px) {
             .catalog-grid-2x2 { grid-template-columns: 1fr; }
-            .executive-topbar { padding: 0 16px; }
+            .executive-topbar { padding: 0 16px; height: auto; min-height: 64px; flex-wrap: wrap; gap: 8px; padding-top: 10px; padding-bottom: 10px; }
           }
         </style>
       </head>
       <body>
-
-        <!-- Sticky Executive Bar -->
         <header class="executive-topbar">
           <div class="brand-logo">
             <div class="brand-icon"><i class="ri-radar-fill"></i></div>
@@ -489,13 +481,12 @@ export class PdfReportService {
           </div>
         </header>
 
-        <!-- Main Content -->
         <main id="catalogContent" class="catalog-container">
           <div class="catalog-header">
-            <h1 class="catalog-title">${title}</h1>
+            <h1 class="catalog-title">${safeTitle}</h1>
             <div class="catalog-meta-row">
-              <span class="header-pill"><i class="ri-global-line"></i> ${pageUrl}</span>
-              <span class="header-pill"><i class="ri-time-line"></i> ${new Date().toLocaleString()}</span>
+              <span class="header-pill"><i class="ri-global-line"></i> ${safePageUrl}</span>
+              <span class="header-pill"><i class="ri-time-line"></i> ${safeDate}</span>
               <span class="header-pill"><i class="ri-file-list-3-line"></i> ${items.length} Recursos (${imageCount} Img • ${videoCount} Vid)</span>
               <span class="header-pill"><i class="ri-layout-grid-fill"></i> Formato: 4 Elementos por Hoja</span>
             </div>
@@ -510,21 +501,19 @@ export class PdfReportService {
           async function downloadPDFDirectly() {
             const btn = document.getElementById('btnDownloadPdf');
             if (!btn) return;
-            
             const originalHTML = btn.innerHTML;
             btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Generando PDF HD...';
             btn.disabled = true;
 
             const element = document.getElementById('catalogContent');
-
             if (window.html2pdf) {
               const opt = {
-                margin:       [0.2, 0.2, 0.2, 0.2],
-                filename:     'MediaScraper_Catalogo_' + Date.now() + '.pdf',
-                image:        { type: 'jpeg', quality: 0.98 },
-                html2canvas:  { scale: 2, useCORS: true, logging: false, backgroundColor: '#040711' },
-                jsPDF:        { unit: 'in', format: 'letter', orientation: 'landscape' },
-                pagebreak:    { mode: ['css', 'legacy'] }
+                margin: [0.2, 0.2, 0.2, 0.2],
+                filename: 'MediaScraper_Catalogo_' + Date.now() + '.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#040711' },
+                jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' },
+                pagebreak: { mode: ['css', 'legacy'] }
               };
 
               try {
@@ -536,17 +525,15 @@ export class PdfReportService {
                 }, 2500);
                 return;
               } catch (err) {
-                console.warn('Error con html2pdf, recurriendo a impresión:', err);
+                console.warn('Fallback a impresion nativa:', err);
               }
             }
 
-            // Fallback directo si no carga la CDN
             window.print();
             btn.innerHTML = originalHTML;
             btn.disabled = false;
           }
         </script>
-
       </body>
       </html>
     `);

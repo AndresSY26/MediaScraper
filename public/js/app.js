@@ -6,19 +6,19 @@ import { ExportModalComponent } from './components/exportModal.component.js';
 import { ImageEditorComponent } from './components/imageEditor.component.js';
 import { HistoryComponent } from './components/history.component.js';
 import { ApiService } from './services/api.service.js';
+import { sanitizeHref } from './utils/dom.util.js';
 
 /**
- * Aplicación Principal MediaScraper (Next-Gen PWA Architecture sin Nube ni Logins)
+ * Aplicación Principal MediaScraper (PWA Multiplataforma compatible con Vercel & Render)
  */
 document.addEventListener('DOMContentLoaded', () => {
-  // PWA Service Worker Registration & Installation Prompt
   let deferredPrompt;
   const pwaInstallBtn = document.getElementById('pwaInstallBtn');
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js')
       .then(() => console.log('MediaScraper PWA Service Worker registrado'))
-      .catch(err => console.warn('PWA Error:', err));
+      .catch(err => console.warn('PWA Service Worker aviso:', err));
   }
 
   window.addEventListener('beforeinstallprompt', (e) => {
@@ -40,6 +40,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Navegación activa
+  document.querySelectorAll('.nav-link-item').forEach(link => {
+    link.addEventListener('click', () => {
+      document.querySelectorAll('.nav-link-item').forEach(l => l.classList.remove('active'));
+      link.classList.add('active');
+    });
+  });
+
   // DOM Elements
   const scrapeForm = document.getElementById('scrapeForm');
   const urlInput = document.getElementById('urlInput');
@@ -54,6 +62,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const errorTitle = document.getElementById('errorTitle');
   const errorDesc = document.getElementById('errorDesc');
 
+  const scrapeLoadingSkeleton = document.getElementById('scrapeLoadingSkeleton');
+  const scrapeLoadingStatusText = document.getElementById('scrapeLoadingStatusText');
   const resultsSection = document.getElementById('resultsSection');
   const scrapedTitle = document.getElementById('scrapedTitle');
   const scrapedUrlLink = document.getElementById('scrapedUrlLink');
@@ -61,21 +71,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let currentScrapedData = { title: 'Catálogo', url: '' };
 
-  // Inicialización de Componentes Avanzados
+  // Inicialización de Componentes
   const theme = new ThemeComponent('themeToggleBtn', 'themeIcon');
   const fullscreen = new FullscreenComponent();
   const imageEditor = new ImageEditorComponent();
-  async function performScrape(rawUrl) {
+
+  async function performScrape(rawUrl, forceDeep = null) {
     const url = (rawUrl || urlInput.value || '').trim();
     if (!url) return;
 
+    if (forceDeep !== null && deepScrapeToggle) {
+      deepScrapeToggle.checked = Boolean(forceDeep);
+    }
     const isDeepScrape = deepScrapeToggle ? deepScrapeToggle.checked : false;
 
     hideBanners();
     drawer.close();
     fullscreen.close();
     imageEditor.close();
-    setLoadingState(true);
+    setLoadingState(true, isDeepScrape);
     resultsSection.style.display = 'none';
     resultsSection.classList.remove('active');
 
@@ -83,46 +97,48 @@ document.addEventListener('DOMContentLoaded', () => {
       const { ok, data } = await ApiService.scrapeUrl(url, isDeepScrape);
 
       if (!ok) {
-        showErrorBanner('Error de servidor', data?.error || 'No se pudo completar la solicitud.');
+        showErrorBanner('No se pudo completar la extracción', data?.error || 'Verifica que la URL sea pública y accesible.');
         return;
       }
 
       if (data.isSocialMedia) {
-        showSocialWarning(data.message || 'Aún no tenemos soporte para redes sociales específicas.');
+        showSocialWarning(data.message || 'Aún no tenemos soporte para redes sociales cerradas.');
         return;
-      }      currentScrapedData = {
+      }
+
+      currentScrapedData = {
         title: data.title || 'Contenido Extraído',
         url: data.url
       };
 
       if (scrapedTitle) {
-        scrapedTitle.textContent = data.isDirectVideoPage 
+        scrapedTitle.textContent = data.isDirectVideoPage
           ? `📹 Extractor de Video Directo: ${data.title || 'Video Extraído'}`
-          : `${data.title || 'Contenido Extraído'} ${isDeepScrape ? '(Scraping Profundo Activado)' : ''}`;
-      }
-      if (scrapedUrlLink) {
-        scrapedUrlLink.innerHTML = `${data.url} <i class="ri-external-link-line"></i>`;
-        scrapedUrlLink.href = data.url;
+          : `${data.title || 'Contenido Extraído'}${isDeepScrape ? ' (Scraping Profundo)' : ''}`;
       }
 
-      // Registrar en el historial local de búsquedas
+      if (scrapedUrlLink) {
+        scrapedUrlLink.textContent = `${data.url} `;
+        const icon = document.createElement('i');
+        icon.className = 'ri-external-link-line';
+        scrapedUrlLink.appendChild(icon);
+        scrapedUrlLink.href = sanitizeHref(data.url);
+      }
+
       history.addEntry(data.url, data.title, data.stats);
 
-      // Renderizar los elementos multimedia y la tarjeta de video principal
       gallery.setItems(data.items, data.stats, data.mainVideo, data.isDirectVideoPage);
       resultsSection.style.display = 'block';
       resultsSection.classList.add('active');
 
-      // Auto desplazarse suavemente hacia los resultados
       setTimeout(() => {
         resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
-
     } catch (err) {
       console.error('Error en extracción:', err);
-      showErrorBanner('Error de Conexión', 'Ocurrió un fallo al comunicarse con el servidor.');
+      showErrorBanner('Error de Conexión', 'Ocurrió un fallo de red al comunicarse con el servidor.');
     } finally {
-      setLoadingState(false);
+      setLoadingState(false, false);
     }
   }
 
@@ -136,14 +152,17 @@ document.addEventListener('DOMContentLoaded', () => {
     (proxyUrl, filename) => imageEditor.open(proxyUrl, filename)
   );
 
-  const gallery = new GalleryComponent((item) => drawer.open(item));
-  
+  const gallery = new GalleryComponent(
+    (item) => drawer.open(item),
+    () => performScrape(urlInput.value, true)
+  );
+
   const exportModal = new ExportModalComponent(
     () => gallery.getSelectedItems(),
     () => currentScrapedData
   );
 
-  // Clipboard Paste Button
+  // Botón Pegar desde el Portapapeles con manejo de permisos
   const pasteUrlBtn = document.getElementById('pasteUrlBtn');
   if (pasteUrlBtn) {
     pasteUrlBtn.addEventListener('click', async (e) => {
@@ -160,12 +179,16 @@ document.addEventListener('DOMContentLoaded', () => {
           }, 1800);
         }
       } catch (err) {
-        console.warn('Clipboard read error:', err);
+        urlInput.focus();
+        pasteUrlBtn.innerHTML = '<i class="ri-information-line" style="color: var(--warning-color);"></i> Usa Ctrl+V';
+        setTimeout(() => {
+          pasteUrlBtn.innerHTML = '<i class="ri-clipboard-line"></i> Pegar';
+        }, 2200);
       }
     });
   }
 
-  // Quick Chips
+  // Chips de ejemplos rápidos
   document.querySelectorAll('.chip-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -180,7 +203,6 @@ document.addEventListener('DOMContentLoaded', () => {
     openExportModalBtn.addEventListener('click', () => exportModal.open());
   }
 
-  // Manejo de Envío del Formulario
   if (scrapeForm) {
     scrapeForm.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -189,33 +211,38 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-
-
-  function setLoadingState(isLoading) {
+  function setLoadingState(isLoading, isDeep) {
     if (isLoading) {
       scrapeBtn.disabled = true;
       if (btnText) btnText.style.display = 'none';
       if (btnLoading) btnLoading.style.display = 'inline-flex';
+      if (scrapeLoadingStatusText) {
+        scrapeLoadingStatusText.textContent = isDeep
+          ? 'Scraping Profundo activo: explorando página principal y enlaces internos...'
+          : 'Conectando con el sitio y detectando recursos multimedia...';
+      }
+      if (scrapeLoadingSkeleton) scrapeLoadingSkeleton.style.display = 'block';
     } else {
       scrapeBtn.disabled = false;
       if (btnText) btnText.style.display = 'inline-flex';
       if (btnLoading) btnLoading.style.display = 'none';
+      if (scrapeLoadingSkeleton) scrapeLoadingSkeleton.style.display = 'none';
     }
   }
 
   function hideBanners() {
-    socialWarningBanner.style.display = 'none';
-    errorBanner.style.display = 'none';
+    if (socialWarningBanner) socialWarningBanner.style.display = 'none';
+    if (errorBanner) errorBanner.style.display = 'none';
   }
 
   function showSocialWarning(msg) {
-    socialWarningText.textContent = msg;
-    socialWarningBanner.style.display = 'flex';
+    if (socialWarningText) socialWarningText.textContent = msg;
+    if (socialWarningBanner) socialWarningBanner.style.display = 'flex';
   }
 
   function showErrorBanner(title, desc) {
-    errorTitle.textContent = title;
-    errorDesc.textContent = desc;
-    errorBanner.style.display = 'flex';
+    if (errorTitle) errorTitle.textContent = title;
+    if (errorDesc) errorDesc.textContent = desc;
+    if (errorBanner) errorBanner.style.display = 'flex';
   }
 });

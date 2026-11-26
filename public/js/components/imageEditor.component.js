@@ -1,12 +1,15 @@
+import { syncBodyScrollLock } from '../utils/dom.util.js';
+
 /**
- * Componente Editor de Imágenes, Conversor de Formatos y Extractor de Paleta de Colores HEX
+ * Componente Editor de Imágenes Canvas, Conversor de Formatos y Extractor de Paleta HEX
  */
 export class ImageEditorComponent {
   constructor() {
     this.modal = document.getElementById('imageEditorModal');
     this.canvas = document.getElementById('editorCanvas');
+    this.loadingState = document.getElementById('editorLoadingState');
     this.ctx = this.canvas ? this.canvas.getContext('2d') : null;
-    
+
     this.currentImg = null;
     this.currentRotation = 0;
     this.currentFilter = 'none';
@@ -23,6 +26,21 @@ export class ImageEditorComponent {
     const downloadJpgBtn = document.getElementById('downloadJpgBtn');
 
     if (closeBtn) closeBtn.addEventListener('click', () => this.close());
+
+    if (this.modal) {
+      this.modal.addEventListener('click', (e) => {
+        if (e.target === this.modal) {
+          this.close();
+        }
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.modal && this.modal.classList.contains('active')) {
+        this.close();
+      }
+    });
+
     if (rotateBtn) {
       rotateBtn.addEventListener('click', () => {
         this.currentRotation = (this.currentRotation + 90) % 360;
@@ -32,11 +50,7 @@ export class ImageEditorComponent {
 
     if (resetBtn) {
       resetBtn.addEventListener('click', () => {
-        this.currentRotation = 0;
-        this.currentFilter = 'none';
-        document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
-        const normBtn = document.querySelector('.filter-chip[data-filter="none"]');
-        if (normBtn) normBtn.classList.add('active');
+        this.resetFilterUI();
         this.renderCanvas();
       });
     }
@@ -54,51 +68,67 @@ export class ImageEditorComponent {
     if (downloadJpgBtn) downloadJpgBtn.addEventListener('click', () => this.downloadAs('image/jpeg', 'jpg'));
   }
 
-  open(proxyUrl, filename) {
-    this.filename = filename || 'edited_image';
+  resetFilterUI() {
     this.currentRotation = 0;
     this.currentFilter = 'none';
-    
+    document.querySelectorAll('.filter-chip').forEach(c => {
+      c.classList.toggle('active', c.dataset.filter === 'none');
+    });
+  }
+
+  open(proxyUrl, filename) {
+    this.filename = filename || 'edited_image';
+    this.currentImg = null;
+    this.resetFilterUI();
+
+    if (this.paletteContainer) this.paletteContainer.innerHTML = '';
+    if (this.canvas) this.canvas.style.display = 'none';
+    if (this.loadingState) this.loadingState.style.display = 'flex';
+
+    if (this.modal) {
+      this.modal.classList.add('active');
+      syncBodyScrollLock();
+    }
+
     const img = new Image();
     img.crossOrigin = 'Anonymous';
     img.src = proxyUrl;
 
     img.onload = () => {
       this.currentImg = img;
+      if (this.loadingState) this.loadingState.style.display = 'none';
+      if (this.canvas) this.canvas.style.display = 'block';
       this.extractColorPalette(img);
       this.renderCanvas();
-      this.modal.classList.add('active');
     };
 
     img.onerror = () => {
-      alert('No se pudo cargar la imagen para edición.');
+      if (this.loadingState) {
+        this.loadingState.innerHTML = '<i class="ri-error-warning-line"></i> No se pudo cargar la imagen para edición.';
+      }
     };
   }
 
   close() {
-    this.modal.classList.remove('active');
+    if (this.modal) this.modal.classList.remove('active');
+    syncBodyScrollLock();
   }
 
   renderCanvas() {
-    if (!this.currentImg || !this.canvas) return;
+    if (!this.currentImg || !this.canvas || !this.ctx) return;
 
     const img = this.currentImg;
     const isRotatedVertical = this.currentRotation === 90 || this.currentRotation === 270;
-    
+
     this.canvas.width = isRotatedVertical ? img.height : img.width;
     this.canvas.height = isRotatedVertical ? img.width : img.height;
 
     this.ctx.save();
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-
-    // Apply Filter
     this.ctx.filter = this.getFilterStyle(this.currentFilter);
-
-    // Rotate Center
     this.ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
     this.ctx.rotate((this.currentRotation * Math.PI) / 180);
     this.ctx.drawImage(img, -img.width / 2, -img.height / 2);
-
     this.ctx.restore();
   }
 
@@ -129,6 +159,8 @@ export class ImageEditorComponent {
       const colorCounts = {};
 
       for (let i = 0; i < imageData.length; i += 16) {
+        const a = imageData[i + 3];
+        if (a < 40) continue;
         const r = imageData[i];
         const g = imageData[i + 1];
         const b = imageData[i + 2];
@@ -150,7 +182,7 @@ export class ImageEditorComponent {
         `;
 
         swatch.addEventListener('click', () => {
-          navigator.clipboard.writeText(hex);
+          navigator.clipboard.writeText(hex).catch(() => {});
           const hexText = swatch.querySelector('.swatch-hex-text');
           const originalHex = hexText.textContent;
           hexText.textContent = '¡Copiado!';
@@ -163,17 +195,17 @@ export class ImageEditorComponent {
 
         this.paletteContainer.appendChild(swatch);
       });
-    } catch(e) {
+    } catch (e) {
       this.paletteContainer.innerHTML = '<span style="font-size: 0.8rem; color: var(--text-muted);">Paleta no disponible</span>';
     }
   }
 
   downloadAs(mimeType, ext) {
-    if (!this.canvas) return;
+    if (!this.canvas || !this.currentImg) return;
     const dataUrl = this.canvas.toDataURL(mimeType, 0.92);
     const link = document.createElement('a');
     link.href = dataUrl;
-    link.download = `edited_${this.filename.split('.')[0]}.${ext}`;
+    link.download = `edited_${String(this.filename || 'imagen').split('.')[0]}.${ext}`;
     link.click();
   }
 }

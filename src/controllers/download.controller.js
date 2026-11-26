@@ -1,20 +1,31 @@
 const axios = require('axios');
+const { pipeline } = require('stream');
+const config = require('../../config');
 const { DEFAULT_USER_AGENT } = require('../../config/constants');
+const UrlResolverService = require('../services/urlResolver.service');
 
 /**
- * Controlador para descargas individuales directas de alta velocidad e integridad de video (MP4 y HLS)
+ * Controlador para descargas directas seguras con desenvolvimiento de proxy, MIME real y soporte HLS
  */
 class DownloadController {
   static async handleDownload(req, res, next) {
-    const { url: mediaUrl, filename } = req.query;
-    if (!mediaUrl) return res.status(400).send('URL requerida');
-
-    let safeFilename = filename ? filename.replace(/[^a-zA-Z0-9_\.-]/g, '_') : 'video_download.mp4';
-    if (!/\.(mp4|webm|mp3|m4a|jpg|png|gif|webp)$/i.test(safeFilename)) {
-      safeFilename += '.mp4';
+    const { url: rawMediaUrl, filename } = req.query;
+    if (!rawMediaUrl || typeof rawMediaUrl !== 'string') {
+      return res.status(400).json({ error: 'Parámetro URL requerido.', status: 400 });
     }
 
-    try {      const parsedUrl = new URL(mediaUrl);
+    const abortController = new AbortController();
+    const onClientClose = () => {
+      if (!res.writableEnded) {
+        abortController.abort();
+      }
+    };
+    req.on('close', onClientClose);
+
+    try {
+      // Desenvolver /api/proxy?url=... si proviene del reproductor o tarjeta UI y validar anti-SSRF
+      const safeMediaUrl = await UrlResolverService.assertSafeTarget(rawMediaUrl);
+      const parsedUrl = new URL(safeMediaUrl);
       let originReferer = `${parsedUrl.protocol}//${parsedUrl.hostname}/`;
 
       if (parsedUrl.hostname.includes('phncdn.com') || parsedUrl.hostname.includes('pornhub')) {
@@ -26,119 +37,171 @@ class DownloadController {
         'Referer': originReferer,
         'Origin': originReferer.slice(0, -1)
       };
-      // Si es una lista de reproducción HLS (.m3u8), ensamblar segmentos TS a MP4
-      if (mediaUrl.includes('.m3u8')) {
-        return await DownloadController.streamHlsAsMp4(mediaUrl, safeFilename, headers, res);
+
+      const { type, ext: detectedExt } = UrlResolverService.getMediaTypeAndExt(safeMediaUrl);
+      let safeFilename = filename
+        ? String(filename).replace(/[^a-zA-Z0-9_.-]/g, '_')
+        : `download_${Date.now()}.${detectedExt}`;
+
+      if (!/\.(mp4|webm|ts|mp3|wav|m4a|ogg|jpg|jpeg|png|gif|webp|svg|avif|bmp|ico|tiff)$/i.test(safeFilename)) {
+        safeFilename += `.${detectedExt || (type === 'video' ? 'mp4' : 'jpg')}`;
       }
 
-      // Descarga directa (MP4 / WebM / Audio)
+      // Si es lista HLS (.m3u8), ensamblar segmentos de mayor calidad dentro del presupuesto de tiempo
+      if (/\.m3u8(\?|$)/i.test(safeMediaUrl)) {
+        return await DownloadController.streamHlsSegments(safeMediaUrl, safeFilename, headers, res, abortController.signal);
+      }
+
       const response = await axios({
         method: 'get',
-        url: mediaUrl,
+        url: safeMediaUrl,
         responseType: 'stream',
         headers,
-        timeout: 30000,
-        validateStatus: (status) => status >= 200 && status < 400
+        timeout: config.proxyTimeout,
+        signal: abortController.signal,
+        validateStatus: (status) => status >= 200 && status < 400,
+        beforeRedirect: (opts) => {
+          if (opts && opts.href) UrlResolverService.validatePublicHttpUrl(opts.href);
+        }
       });
 
-      res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
-      if (response.headers['content-type']) {
-        res.setHeader('Content-Type', response.headers['content-type']);
-      } else {
-        res.setHeader('Content-Type', 'video/mp4');
-      }
+      const contentType = response.headers['content-type'] || (type === 'video' ? 'video/mp4' : 'application/octet-stream');
+      const encodedName = encodeURIComponent(safeFilename);
+      res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodedName}`);
+      res.setHeader('Content-Type', contentType);
 
       if (response.headers['content-length']) {
         res.setHeader('Content-Length', response.headers['content-length']);
       }
 
-      response.data.pipe(res);
-
-      req.on('close', () => {
-        if (response.data && typeof response.data.destroy === 'function') {
-          response.data.destroy();
+      pipeline(response.data, res, (pipeErr) => {
+        if (pipeErr && pipeErr.code !== 'ERR_STREAM_PREMATURE_CLOSE' && !abortController.signal.aborted) {
+          if (config.env !== 'test') {
+            console.warn('[Download pipeline]:', pipeErr.message);
+          }
         }
       });
-
     } catch (err) {
-      console.error('Error en descarga:', err.message);
-      if (!res.headersSent) {
-        res.status(500).send('Error en la descarga del archivo multimedia');
+      if (abortController.signal.aborted || res.headersSent) return;
+      if (err.status === 400 || err.status === 403) {
+        return next(err);
       }
+      if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+        return res.status(504).json({ error: 'Tiempo de espera agotado al descargar el recurso.', status: 504 });
+      }
+      return res.status(502).json({ error: 'Error en la descarga del archivo multimedia remoto.', status: 502 });
+    } finally {
+      req.off('close', onClientClose);
     }
   }
 
-  static async streamHlsAsMp4(m3u8Url, filename, headers, res) {
-    try {
-      // 1. Obtener Master Playlist
-      const resMaster = await axios.get(m3u8Url, { headers, timeout: 15000 });
-      let masterData = resMaster.data;
+  static selectBestVariantFromMaster(masterContent, masterUrl) {
+    const lines = String(masterContent || '').split('\n').map(l => l.trim());
+    const baseUrl = masterUrl.substring(0, masterUrl.lastIndexOf('/') + 1);
+    let bestUrl = null;
+    let bestScore = -1;
 
-      let indexPlaylistUrl = m3u8Url;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith('#EXT-X-STREAM-INF')) {
+        const bwMatch = line.match(/BANDWIDTH=(\d+)/i);
+        const resMatch = line.match(/RESOLUTION=(\d+)x(\d+)/i);
+        const bandwidth = bwMatch ? parseInt(bwMatch[1], 10) : 0;
+        const pixels = resMatch ? parseInt(resMatch[1], 10) * parseInt(resMatch[2], 10) : 0;
+        const score = pixels > 0 ? pixels : bandwidth;
 
-      // Si es un Master Playlist, buscar la lista de reproducción de mayor calidad
-      if (typeof masterData === 'string' && masterData.includes('#EXT-X-STREAM-INF')) {
-        const lines = masterData.split('\n');
-        let relativeIndex = '';
-        for (let line of lines) {
-          line = line.trim();
-          if (line && !line.startsWith('#')) {
-            relativeIndex = line;
-            break;
+        for (let j = i + 1; j < lines.length; j++) {
+          if (!lines[j]) continue;
+          if (lines[j].startsWith('#')) break;
+          const resolved = UrlResolverService.resolveUrl(lines[j], baseUrl);
+          if (resolved && score > bestScore) {
+            bestScore = score;
+            bestUrl = resolved;
           }
-        }
-        if (relativeIndex) {
-          const baseUrl = m3u8Url.substring(0, m3u8Url.lastIndexOf('/') + 1);
-          indexPlaylistUrl = new URL(relativeIndex, baseUrl).href;
+          break;
         }
       }
+    }
 
-      // 2. Obtener lista de segmentos TS
-      const resIndex = await axios.get(indexPlaylistUrl, { headers, timeout: 15000 });
-      const indexLines = resIndex.data.split('\n');
+    return bestUrl || masterUrl;
+  }
+
+  static async streamHlsSegments(m3u8Url, filename, headers, res, abortSignal) {
+    const startTime = Date.now();
+    const maxHlsBudgetMs = config.isVercel ? 48000 : 120000;
+    const maxSegments = config.isVercel ? 80 : 300;
+
+    try {
+      const resMaster = await axios.get(m3u8Url, {
+        headers,
+        timeout: 12000,
+        maxContentLength: 2 * 1024 * 1024,
+        signal: abortSignal
+      });
+      const masterData = String(resMaster.data || '');
+
+      let indexPlaylistUrl = m3u8Url;
+      if (masterData.includes('#EXT-X-STREAM-INF')) {
+        const candidateVariant = this.selectBestVariantFromMaster(masterData, m3u8Url);
+        indexPlaylistUrl = await UrlResolverService.assertSafeTarget(candidateVariant);
+      }
+
+      const resIndex = await axios.get(indexPlaylistUrl, {
+        headers,
+        timeout: 12000,
+        maxContentLength: 2 * 1024 * 1024,
+        signal: abortSignal
+      });
+
+      const baseUrl = indexPlaylistUrl.substring(0, indexPlaylistUrl.lastIndexOf('/') + 1);
       const segmentUrls = [];
-
-      for (let line of indexLines) {
-        line = line.trim();
+      for (const rawLine of String(resIndex.data || '').split('\n')) {
+        const line = rawLine.trim();
         if (line && !line.startsWith('#')) {
-          const baseUrl = indexPlaylistUrl.substring(0, indexPlaylistUrl.lastIndexOf('/') + 1);
-          segmentUrls.push(new URL(line, baseUrl).href);
+          const resolvedSeg = UrlResolverService.resolveUrl(line, baseUrl);
+          if (resolvedSeg && !resolvedSeg.startsWith('data:')) {
+            segmentUrls.push(resolvedSeg);
+          }
         }
       }
 
       if (segmentUrls.length === 0) {
-        return res.status(500).send('No se pudieron obtener segmentos del video');
+        return res.status(502).json({ error: 'No se encontraron segmentos válidos en la transmisión HLS.', status: 502 });
       }
 
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.setHeader('Content-Type', 'video/mp4');
+      const tsFilename = filename.replace(/\.mp3$/i, '.mp4');
+      const encodedName = encodeURIComponent(tsFilename);
+      res.setHeader('Content-Disposition', `attachment; filename="${tsFilename}"; filename*=UTF-8''${encodedName}`);
+      res.setHeader('Content-Type', 'video/mp2t');
 
-      // 3. Descargar y transmitir segmentos secuencialmente sin almacenamiento intermedio
-      for (const segUrl of segmentUrls) {
-        if (res.writableEnded || res.destroyed) break;
+      const boundedSegments = segmentUrls.slice(0, maxSegments);
+      for (const segUrl of boundedSegments) {
+        if (abortSignal?.aborted || res.writableEnded || res.destroyed) break;
+        if (Date.now() - startTime > maxHlsBudgetMs) break;
 
         try {
           const segResponse = await axios.get(segUrl, {
             headers,
             responseType: 'arraybuffer',
-            timeout: 15000
+            timeout: 10000,
+            maxContentLength: 15 * 1024 * 1024,
+            signal: abortSignal
           });
 
-          if (segResponse.data) {
+          if (segResponse.data && !res.writableEnded) {
             res.write(Buffer.from(segResponse.data));
           }
         } catch (segErr) {
-          console.warn(`Aviso: Error descargando segmento TS ${segUrl}:`, segErr.message);
+          if (abortSignal?.aborted) break;
         }
       }
 
-      res.end();
-
-    } catch (err) {
-      console.error('Error ensamblando HLS a MP4:', err.message);
-      if (!res.headersSent) {
-        res.status(500).send('Error ensamblando video HLS');
+      if (!res.writableEnded) {
+        res.end();
       }
+    } catch (err) {
+      if (abortSignal?.aborted || res.headersSent) return;
+      return res.status(502).json({ error: 'Error ensamblando segmentos de video HLS.', status: 502 });
     }
   }
 }

@@ -1,10 +1,9 @@
-const CACHE_NAME = 'mediascraper-cache-v2';
+const CACHE_NAME = 'mediascraper-cache-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/styles.css',
   '/manifest.json',
-  '/ads.txt',
   '/assets/logo.svg',
   '/css/variables.css',
   '/css/base.css',
@@ -14,8 +13,10 @@ const ASSETS_TO_CACHE = [
   '/css/responsive.css',
   '/js/app.js',
   '/js/config/constants.js',
+  '/js/utils/dom.util.js',
   '/js/services/api.service.js',
   '/js/services/aiVision.service.js',
+  '/js/services/audioExtractor.service.js',
   '/js/services/pdfReport.service.js',
   '/js/components/theme.component.js',
   '/js/components/history.component.js',
@@ -32,7 +33,7 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
-        console.warn('SW cache prefetch partial error:', err);
+        console.warn('SW cache prefetch partial warning:', err);
       });
     })
   );
@@ -49,32 +50,57 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Pass-through for API requests, stream proxies, and external CDNs
-  if (event.request.url.includes('/api/') || event.request.method !== 'GET') {
+  if (event.request.method !== 'GET') return;
+
+  let reqUrl;
+  try {
+    reqUrl = new URL(event.request.url);
+  } catch (e) {
     return;
   }
 
+  // Pass-through estricto para orígenes externos (AdSense, TensorFlow, Tesseract, Fonts), API, ads.txt y Range
+  if (
+    reqUrl.origin !== self.location.origin ||
+    reqUrl.pathname.startsWith('/api/') ||
+    reqUrl.pathname === '/ads.txt' ||
+    reqUrl.pathname === '/sw.js' ||
+    event.request.headers.has('range')
+  ) {
+    return;
+  }
+
+  // Navegación HTML: Network-First para reflejar nuevos deploys al instante con respaldo offline
+  const isHtmlNavigation = event.request.mode === 'navigate' || reqUrl.pathname === '/' || reqUrl.pathname.endsWith('.html');
+  if (isHtmlNavigation) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkRes) => {
+          if (networkRes && networkRes.status === 200 && networkRes.type === 'basic') {
+            const copy = networkRes.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(() => {});
+          }
+          return networkRes;
+        })
+        .catch(() => caches.match(event.request).then(cached => cached || caches.match('/index.html')))
+    );
+    return;
+  }
+
+  // Activos estáticos propios: Stale-While-Revalidate resiliente
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Network in background to revalidate cache
-        fetch(event.request).then(networkResponse => {
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, networkResponse));
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseToCache)).catch(() => {});
           }
-        }).catch(() => {});
-        return cachedResponse;
-      }
-      return fetch(event.request).then((response) => {
-        if (!response || response.status !== 200 || response.type !== 'basic') {
-          return response;
-        }
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
-        return response;
-      });
+          return networkResponse;
+        })
+        .catch(() => cachedResponse);
+
+      return cachedResponse || fetchPromise;
     })
   );
 });

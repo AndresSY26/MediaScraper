@@ -1,5 +1,7 @@
+import { escapeHtml } from '../utils/dom.util.js';
+
 /**
- * Componente Gestor de Historial de Búsquedas y Colecciones Recientes (localStorage)
+ * Componente Gestor de Historial de Búsquedas Recientes (localStorage sanitizado contra XSS)
  */
 export class HistoryComponent {
   constructor(onSelectHistoryItem) {
@@ -30,7 +32,13 @@ export class HistoryComponent {
     }
 
     document.addEventListener('click', (e) => {
-      if (this.historyMenu && !this.historyMenu.contains(e.target) && e.target !== this.historyBtn) {
+      if (this.historyMenu && !this.historyMenu.contains(e.target) && !this.historyBtn?.contains(e.target)) {
+        this.historyMenu.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.historyMenu?.classList.contains('active')) {
         this.historyMenu.classList.remove('active');
       }
     });
@@ -38,8 +46,9 @@ export class HistoryComponent {
 
   getHistory() {
     try {
-      return JSON.parse(localStorage.getItem(this.STORAGE_KEY)) || [];
-    } catch(e) {
+      const parsed = JSON.parse(localStorage.getItem(this.STORAGE_KEY));
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
       return [];
     }
   }
@@ -57,12 +66,16 @@ export class HistoryComponent {
 
     if (history.length > 12) history = history.slice(0, 12);
 
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(history));
+    try {
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(history));
+    } catch (e) {}
     this.render();
   }
 
   clearHistory() {
-    localStorage.removeItem(this.STORAGE_KEY);
+    try {
+      localStorage.removeItem(this.STORAGE_KEY);
+    } catch (e) {}
     this.render();
   }
 
@@ -82,25 +95,31 @@ export class HistoryComponent {
     }
 
     history.forEach(entry => {
+      const safeTitle = escapeHtml(entry.title || entry.url || '');
+      const safeUrl = escapeHtml(entry.url || '');
+      const safeDate = escapeHtml(entry.date || '');
+      const imgCount = Number(entry.stats?.images || 0);
+      const vidCount = Number(entry.stats?.videos || 0);
+
       const itemEl = document.createElement('div');
       itemEl.className = 'history-item';
       itemEl.innerHTML = `
         <div class="history-item-info">
-          <div class="history-item-title">${entry.title}</div>
-          <div class="history-item-url">${entry.url}</div>
+          <div class="history-item-title" title="${safeTitle}">${safeTitle}</div>
+          <div class="history-item-url" title="${safeUrl}">${safeUrl}</div>
           <div class="history-item-meta">
-            <span><i class="ri-time-line"></i> ${entry.date}</span>
-            <span><i class="ri-image-line"></i> ${entry.stats?.images || 0} imgs</span>
-            <span><i class="ri-video-line"></i> ${entry.stats?.videos || 0} vids</span>
+            <span><i class="ri-time-line"></i> ${safeDate}</span>
+            <span><i class="ri-image-line"></i> ${imgCount} imgs</span>
+            <span><i class="ri-video-line"></i> ${vidCount} vids</span>
           </div>
         </div>
-        <button class="history-item-action" title="Reanalizar Sitio Web">
+        <button type="button" class="history-item-action" title="Reanalizar Sitio Web" aria-label="Reanalizar">
           <i class="ri-arrow-right-line"></i>
         </button>
       `;
 
       itemEl.addEventListener('click', () => {
-        if (this.onSelectHistoryItem) {
+        if (this.onSelectHistoryItem && entry.url) {
           this.onSelectHistoryItem(entry.url);
         }
         if (this.historyMenu) this.historyMenu.classList.remove('active');

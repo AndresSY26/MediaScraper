@@ -1,8 +1,10 @@
+import { CDN_LIBRARIES } from '../config/constants.js';
 import { CustomVideoPlayer } from './videoPlayer.component.js';
 import { AIVisionService } from '../services/aiVision.service.js';
+import { escapeHtml, loadScriptOnce, syncBodyScrollLock } from '../utils/dom.util.js';
 
 /**
- * Componente Ventana Lateral (Side Drawer Inspector con Google Lens OCR)
+ * Componente Ventana Lateral (Side Drawer Inspector con IA Visual & Google Lens OCR bajo demanda)
  */
 export class DrawerComponent {
   constructor(onOpenFullscreen, onOpenEditor) {
@@ -21,7 +23,6 @@ export class DrawerComponent {
     this.openFullscreenBtn = document.getElementById('openFullscreenBtn');
     this.openEditorBtn = document.getElementById('openEditorBtn');
 
-    // Google Lens OCR DOM Elements
     this.drawerOcrSection = document.getElementById('drawerOcrSection');
     this.runOcrBtn = document.getElementById('runOcrBtn');
     this.ocrResultBox = document.getElementById('ocrResultBox');
@@ -31,6 +32,7 @@ export class DrawerComponent {
     this.onOpenFullscreen = onOpenFullscreen;
     this.onOpenEditor = onOpenEditor;
     this.currentItem = null;
+    this.activePlayer = null;
 
     this.initEvents();
   }
@@ -39,9 +41,21 @@ export class DrawerComponent {
     if (this.closeBtn) this.closeBtn.addEventListener('click', () => this.close());
     if (this.overlay) this.overlay.addEventListener('click', () => this.close());
 
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.drawer && this.drawer.classList.contains('active')) {
+        const hasHigherModal = document.querySelector('#fullscreenModal.active, #imageEditorModal.active');
+        if (!hasHigherModal) {
+          this.close();
+        }
+      }
+    });
+
     if (this.openFullscreenBtn) {
       this.openFullscreenBtn.addEventListener('click', () => {
         if (this.currentItem && this.onOpenFullscreen) {
+          if (this.activePlayer && this.activePlayer.video) {
+            this.activePlayer.video.pause();
+          }
           this.onOpenFullscreen(this.currentItem);
         }
       });
@@ -59,7 +73,6 @@ export class DrawerComponent {
       this.copyUrlBtn.addEventListener('click', () => this.copyUrlToClipboard());
     }
 
-    // Google Lens OCR Scan Event
     if (this.runOcrBtn) {
       this.runOcrBtn.addEventListener('click', () => this.runGoogleLensOcr());
     }
@@ -69,12 +82,19 @@ export class DrawerComponent {
     }
   }
 
+  destroyActivePlayer() {
+    if (this.activePlayer) {
+      this.activePlayer.destroy();
+      this.activePlayer = null;
+    }
+  }
+
   async open(item) {
+    this.destroyActivePlayer();
     this.currentItem = item;
     this.mediaContainer.innerHTML = '';
     this.dimensionsEl.textContent = 'Calculando...';
 
-    // Reset Google Lens OCR state
     if (this.drawerOcrSection) {
       this.drawerOcrSection.style.display = item.type === 'image' ? 'flex' : 'none';
     }
@@ -87,7 +107,7 @@ export class DrawerComponent {
 
     const aiTagsContainer = document.getElementById('drawerAiTagsContainer');
     if (aiTagsContainer) {
-      aiTagsContainer.innerHTML = '<span class="ai-tag-badge"><i class="ri-loader-4-line spin"></i> Analizando píxeles con IA Visual...</span>';
+      aiTagsContainer.innerHTML = '<span class="ai-badge"><i class="ri-loader-4-line spin"></i> Analizando píxeles con IA Visual...</span>';
     }
 
     if (this.openEditorBtn) {
@@ -95,16 +115,21 @@ export class DrawerComponent {
     }
 
     if (item.type === 'video') {
-      const player = new CustomVideoPlayer(item.proxyUrl);
-      const playerElement = player.getElement();
+      this.activePlayer = new CustomVideoPlayer(item.proxyUrl, {
+        originalUrl: item.url,
+        filename: item.filename
+      });
+      const playerElement = this.activePlayer.getElement();
       const videoTag = playerElement.querySelector('video');
 
-      videoTag.addEventListener('loadedmetadata', () => {
-        this.dimensionsEl.textContent = `${videoTag.videoWidth} x ${videoTag.videoHeight} px`;
-      });
+      if (videoTag) {
+        videoTag.addEventListener('loadedmetadata', () => {
+          this.dimensionsEl.textContent = `${videoTag.videoWidth} × ${videoTag.videoHeight} px`;
+        });
+      }
 
       if (aiTagsContainer) {
-        aiTagsContainer.innerHTML = '<span class="ai-tag-badge"><i class="ri-video-line"></i> Contenido Audiovisual</span>';
+        aiTagsContainer.innerHTML = '<span class="ai-badge"><i class="ri-video-line"></i> Contenido Audiovisual</span>';
       }
 
       this.mediaContainer.appendChild(playerElement);
@@ -112,69 +137,75 @@ export class DrawerComponent {
       const img = document.createElement('img');
       img.crossOrigin = 'Anonymous';
       img.src = item.proxyUrl;
-      img.alt = item.filename;
+      img.alt = item.filename || 'Imagen';
 
       img.addEventListener('load', async () => {
-        this.dimensionsEl.textContent = `${img.naturalWidth} x ${img.naturalHeight} px`;
+        if (this.currentItem !== item) return;
+        this.dimensionsEl.textContent = `${img.naturalWidth} × ${img.naturalHeight} px`;
 
-        // Clasificación Visual por IA en tiempo real usando TensorFlow.js & MobileNet
         const visualPredictions = await AIVisionService.classifyImage(img);
+        if (this.currentItem !== item || !aiTagsContainer) return;
 
-        if (aiTagsContainer) {
-          aiTagsContainer.innerHTML = '';
-          if (visualPredictions && visualPredictions.length > 0) {
-            visualPredictions.forEach(pred => {
-              const badge = document.createElement('span');
-              badge.className = 'ai-tag-badge';
-              badge.innerHTML = `<i class="ri-brain-fill"></i> ${pred.label} (${pred.confidence})`;
-              aiTagsContainer.appendChild(badge);
-            });
-          } else if (item.aiTags && item.aiTags.length > 0) {
-            item.aiTags.forEach(tag => {
-              const badge = document.createElement('span');
-              badge.className = 'ai-tag-badge';
-              badge.innerHTML = `<i class="ri-sparkling-fill"></i> ${tag}`;
-              aiTagsContainer.appendChild(badge);
-            });
-          } else {
-            aiTagsContainer.innerHTML = '<span class="ai-tag-badge"><i class="ri-image-line"></i> Imagen Web</span>';
-          }
+        aiTagsContainer.innerHTML = '';
+        if (visualPredictions && visualPredictions.length > 0) {
+          visualPredictions.forEach(pred => {
+            const badge = document.createElement('span');
+            badge.className = 'ai-badge';
+            badge.innerHTML = `<i class="ri-brain-fill"></i> ${escapeHtml(pred.label)} (${escapeHtml(pred.confidence)})`;
+            aiTagsContainer.appendChild(badge);
+          });
+        } else if (Array.isArray(item.aiTags) && item.aiTags.length > 0) {
+          item.aiTags.forEach(tag => {
+            const badge = document.createElement('span');
+            badge.className = 'ai-badge';
+            badge.innerHTML = `<i class="ri-sparkling-fill"></i> ${escapeHtml(tag)}`;
+            aiTagsContainer.appendChild(badge);
+          });
+        } else {
+          aiTagsContainer.innerHTML = '<span class="ai-badge"><i class="ri-image-line"></i> Imagen Web</span>';
         }
       });
 
       img.addEventListener('error', () => {
         this.dimensionsEl.textContent = 'No disponible';
         if (aiTagsContainer) {
-          aiTagsContainer.innerHTML = '<span class="meta-value">No disponible</span>';
+          aiTagsContainer.innerHTML = '<span class="meta-val">No disponible</span>';
         }
       });
 
       this.mediaContainer.appendChild(img);
     }
 
-    this.filenameEl.textContent = item.filename;
-    this.typeEl.textContent = `${item.type.toUpperCase()} (${item.extension})`;
+    this.filenameEl.textContent = item.filename || '-';
+    this.typeEl.textContent = `${String(item.type || '').toUpperCase()} (${item.extension || ''})`;
     this.contextEl.textContent = item.context || 'Etiqueta Web';
     this.altEl.textContent = item.alt || 'Sin descripción alt';
-    this.urlInput.value = item.url;
+    this.urlInput.value = item.url || '';
 
-    this.downloadLink.href = `/api/download?url=${encodeURIComponent(item.url)}&filename=${encodeURIComponent(item.filename)}`;
+    if (item.url && item.url.startsWith('data:image/')) {
+      this.downloadLink.href = item.url;
+      this.downloadLink.download = item.filename || 'imagen.png';
+    } else {
+      this.downloadLink.href = `/api/download?url=${encodeURIComponent(item.url)}&filename=${encodeURIComponent(item.filename)}`;
+      this.downloadLink.download = item.filename || 'archivo';
+    }
 
     this.drawer.classList.add('active');
     this.overlay.classList.add('active');
+    syncBodyScrollLock();
   }
 
   async runGoogleLensOcr() {
     if (!this.currentItem || this.currentItem.type !== 'image') return;
-    if (!window.Tesseract) {
-      alert('La librería OCR no está lista. Por favor verifica tu conexión.');
-      return;
-    }
 
     this.runOcrBtn.disabled = true;
-    this.runOcrBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Escaneando texto (Google Lens OCR)...';
+    this.runOcrBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Cargando motor OCR...';
 
     try {
+      if (!window.Tesseract) {
+        await loadScriptOnce(CDN_LIBRARIES.TESSERACT);
+      }
+
       const result = await window.Tesseract.recognize(
         this.currentItem.proxyUrl,
         'spa+eng',
@@ -188,29 +219,22 @@ export class DrawerComponent {
         }
       );
 
-      const extractedText = (result.data.text || '').trim();
-
+      const extractedText = (result.data?.text || '').trim();
       this.ocrResultBox.style.display = 'flex';
       this.runOcrBtn.innerHTML = '<i class="ri-check-line"></i> Escaneo Completado';
-
-      if (extractedText.length > 0) {
-        this.ocrTextarea.value = extractedText;
-      } else {
-        this.ocrTextarea.value = 'No se detectó texto legible dentro de esta imagen.';
-      }
-
+      this.ocrTextarea.value = extractedText.length > 0
+        ? extractedText
+        : 'No se detectó texto legible dentro de esta imagen.';
     } catch (err) {
       console.warn('Error en Google Lens OCR:', err);
       this.runOcrBtn.disabled = false;
       this.runOcrBtn.innerHTML = '<i class="ri-error-warning-line"></i> Reintentar Escaneo';
-      alert('No se pudo completar el escaneo de texto en esta imagen.');
     }
   }
 
   copyOcrText() {
     if (!this.ocrTextarea.value) return;
-    this.ocrTextarea.select();
-    navigator.clipboard.writeText(this.ocrTextarea.value);
+    navigator.clipboard.writeText(this.ocrTextarea.value).catch(() => {});
     const originalHTML = this.copyOcrTextBtn.innerHTML;
     this.copyOcrTextBtn.innerHTML = '<i class="ri-check-line"></i> ¡Texto Copiado!';
     setTimeout(() => {
@@ -219,14 +243,16 @@ export class DrawerComponent {
   }
 
   close() {
-    this.drawer.classList.remove('active');
-    this.overlay.classList.remove('active');
-    this.mediaContainer.innerHTML = '';
+    this.destroyActivePlayer();
+    if (this.drawer) this.drawer.classList.remove('active');
+    if (this.overlay) this.overlay.classList.remove('active');
+    if (this.mediaContainer) this.mediaContainer.innerHTML = '';
+    syncBodyScrollLock();
   }
 
   copyUrlToClipboard() {
-    this.urlInput.select();
-    navigator.clipboard.writeText(this.urlInput.value);
+    if (!this.urlInput.value) return;
+    navigator.clipboard.writeText(this.urlInput.value).catch(() => {});
     const originalHTML = this.copyUrlBtn.innerHTML;
     this.copyUrlBtn.innerHTML = '<i class="ri-check-line"></i>';
     setTimeout(() => {

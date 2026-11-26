@@ -1,41 +1,68 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { URL } = require('url');
+const config = require('../../config');
 const UrlResolverService = require('./urlResolver.service');
 const AITaggingService = require('./aiTagging.service');
 const { DEFAULT_USER_AGENT } = require('../../config/constants');
 
 /**
- * Servicio principal de Web Scraping con soporte para Scraping Profundo Multinivel (Subpage Crawler)
+ * Servicio principal de Web Scraping con límites de memoria, anti-SSRF y presupuesto de tiempo Serverless
  */
 class ScraperService {
-  static async scrapeMediaFromUrl(targetUrl, isDeepScrape = false) {
-    const urlList = targetUrl.split(/[\n,]/).map(u => u.trim()).filter(u => u.length > 0);
-    const primaryUrl = urlList[0];
-    const mainResult = await this.scrapeSinglePage(primaryUrl);
+  static async scrapeMediaFromUrl(targetUrl, isDeepScrape = false, options = {}) {
+    const startTime = Date.now();
+    const budgetMs = options.budgetMs || config.deepScrapeBudget;
+
+    const urlList = String(targetUrl || '')
+      .split(/[\n,]/)
+      .map(u => u.trim())
+      .filter(Boolean);
+
+    const primaryUrl = await UrlResolverService.assertSafeTarget(urlList[0]);
+    const mainResult = await this.scrapeSinglePage(primaryUrl, {
+      timeoutMs: config.scrapeTimeout
+    });
+
     if (!isDeepScrape || mainResult.isDirectVideoPage || !mainResult.internalLinks || mainResult.internalLinks.length === 0) {
       return mainResult;
-    }    // Scraping Profundo: Explorar hasta 12 subpáginas internas prioritarias en paralelo
+    }
+
+    // Scraping Profundo controlado por lotes y presupuesto de tiempo (evita 504 en Vercel)
     const deepLinksToCrawl = mainResult.internalLinks.slice(0, 12);
     const mediaSetMap = new Map();
-
     mainResult.items.forEach(item => mediaSetMap.set(item.url, item));
 
-    await Promise.all(
-      deepLinksToCrawl.map(async (subUrl) => {
-        try {
-          const subResult = await this.scrapeSinglePage(subUrl);
-          subResult.items.forEach(item => {
-            if (!mediaSetMap.has(item.url)) {
-              mediaSetMap.set(item.url, {
-                ...item,
-                context: `Scraping Profundo: ${item.context}`
-              });
-            }
-          });
-        } catch(e) {}
-      })
-    );
+    const BATCH_SIZE = 4;
+    for (let i = 0; i < deepLinksToCrawl.length; i += BATCH_SIZE) {
+      const elapsed = Date.now() - startTime;
+      const remainingMs = budgetMs - elapsed;
+      if (remainingMs < 3500) {
+        break;
+      }
+
+      const batch = deepLinksToCrawl.slice(i, i + BATCH_SIZE);
+      const perSubpageTimeout = Math.min(config.scrapeTimeout, Math.max(2500, remainingMs - 1000));
+
+      await Promise.all(
+        batch.map(async (subUrl) => {
+          try {
+            const safeSubUrl = await UrlResolverService.assertSafeTarget(subUrl);
+            const subResult = await this.scrapeSinglePage(safeSubUrl, { timeoutMs: perSubpageTimeout });
+            subResult.items.forEach(item => {
+              if (!mediaSetMap.has(item.url)) {
+                mediaSetMap.set(item.url, {
+                  ...item,
+                  context: `Scraping Profundo: ${item.context}`
+                });
+              }
+            });
+          } catch (e) {
+            // Ignorar fallos individuales de subpáginas sin abortar la extracción principal
+          }
+        })
+      );
+    }
 
     let allDeepItems = Array.from(mediaSetMap.values());
     allDeepItems = AITaggingService.detectDuplicates(allDeepItems);
@@ -54,19 +81,19 @@ class ScraperService {
     };
   }
 
-  static async scrapeSinglePage(targetUrl) {
+  static async scrapeSinglePage(targetUrl, { timeoutMs = config.scrapeTimeout } = {}) {
     let parsedBaseUrl = new URL(targetUrl);
 
-    // Direct Image or Video URL Detection
+    // Detección rápida de URL directa de imagen o video
     if (/\.(png|jpe?g|webp|gif|svg|avif|bmp|ico|tiff|mp4|webm|ogg|mov|m4v|m3u8)(\?|$)/i.test(targetUrl)) {
       const { type, ext } = UrlResolverService.getMediaTypeAndExt(targetUrl);
       const filename = UrlResolverService.getFilenameFromUrl(targetUrl, ext, 1);
       let directItem = {
-        id: 'media_' + Math.random().toString(36).substr(2, 9),
+        id: 'media_' + Math.random().toString(36).slice(2, 11),
         url: targetUrl,
-        type: type,
+        type,
         extension: ext.toUpperCase(),
-        filename: filename,
+        filename,
         alt: 'Direct Media Asset',
         context: 'Enlace Directo Multimedia',
         domain: parsedBaseUrl.hostname,
@@ -99,30 +126,57 @@ class ScraperService {
           'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
           'Cache-Control': 'no-cache'
         },
-        timeout: 15000,
-        maxRedirects: 5
+        timeout: timeoutMs,
+        maxRedirects: 5,
+        maxContentLength: config.maxScrapeHtmlBytes,
+        maxBodyLength: config.maxScrapeHtmlBytes,
+        beforeRedirect: (options) => {
+          if (options && options.href) {
+            UrlResolverService.validatePublicHttpUrl(options.href);
+          }
+        }
       });
     } catch (error) {
-      if (error.response && error.response.status === 404) {
-        throw new Error(`La página o video no existe (Error 404). Verifica que el enlace sea correcto y siga disponible: ${targetUrl}`);
-      } else if (error.response && error.response.status === 403) {
-        throw new Error(`Acceso denegado (Error 403). La página está bloqueando la extracción automática: ${targetUrl}`);
+      if (error.status === 400 || error.status === 403) {
+        throw error;
       }
-      throw new Error(`Fallo al acceder a la URL: ${error.message}`);
+      if (error.response && error.response.status === 404) {
+        const err = new Error(`La página o video no existe (Error 404). Verifica que el enlace siga disponible: ${targetUrl}`);
+        err.status = 404;
+        throw err;
+      }
+      if (error.response && error.response.status === 403) {
+        const err = new Error(`Acceso denegado por el sitio destino (Error 403). La página bloquea solicitudes automatizadas: ${targetUrl}`);
+        err.status = 422;
+        throw err;
+      }
+      if (error.code === 'ERR_FR_MAX_BODY_LENGTH_EXCEEDED' || /maxContentLength/i.test(error.message)) {
+        const err = new Error('La respuesta del sitio excede el tamaño máximo permitido para análisis HTML.');
+        err.status = 413;
+        throw err;
+      }
+      if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        const err = new Error('El sitio web tardó demasiado en responder (Tiempo de espera agotado).');
+        err.status = 504;
+        throw err;
+      }
+      const err = new Error(`Fallo al acceder a la URL: ${error.message}`);
+      err.status = 502;
+      throw err;
     }
 
-    const contentType = response.headers['content-type'] || '';
+    const contentType = String(response.headers['content-type'] || '').toLowerCase();
     if (contentType.startsWith('image/') || contentType.startsWith('video/')) {
       const isVid = contentType.startsWith('video/');
       const type = isVid ? 'video' : 'image';
       const ext = isVid ? 'mp4' : 'jpg';
       const filename = UrlResolverService.getFilenameFromUrl(targetUrl, ext, 1);
       let directItem = {
-        id: 'media_' + Math.random().toString(36).substr(2, 9),
+        id: 'media_' + Math.random().toString(36).slice(2, 11),
         url: targetUrl,
-        type: type,
+        type,
         extension: ext.toUpperCase(),
-        filename: filename,
+        filename,
         alt: 'Direct Media Asset',
         context: 'Enlace Directo Multimedia',
         domain: parsedBaseUrl.hostname,
@@ -147,13 +201,19 @@ class ScraperService {
     }
 
     const html = typeof response.data === 'string' ? response.data : '';
-    const finalUrl = response.request?.res?.responseUrl || targetUrl;
+    const candidateFinalUrl = response.request?.res?.responseUrl || targetUrl;
+    let finalUrl = targetUrl;
+    try {
+      finalUrl = UrlResolverService.validatePublicHttpUrl(candidateFinalUrl).href;
+    } catch (e) {
+      finalUrl = targetUrl;
+    }
+
     const $ = cheerio.load(html);
     parsedBaseUrl = new URL(finalUrl);
 
-    const pageTitle = $('title').text().trim() || parsedBaseUrl.hostname;
+    const pageTitle = ($('title').first().text().trim() || parsedBaseUrl.hostname).slice(0, 200);
     const mediaSet = new Map();
-    const internalLinks = new Set();
     let counter = 1;
 
     const isDirectVideoPageRequest = /\/view_video|\/video\/\d+|\/watch\?|\/v\/|\/play\/|viewkey=/i.test(targetUrl);
@@ -162,15 +222,19 @@ class ScraperService {
       const resolved = UrlResolverService.resolveUrl(rawSrc, finalUrl);
       if (!resolved) return;
 
-      if (resolved.startsWith('data:image/svg+xml;base64') && resolved.length < 150) return;
-      if (resolved.includes('1x1') || resolved.includes('pixel.gif') || resolved.includes('spacer.gif')) return;
+      const isDataUri = resolved.startsWith('data:image/');
+      if (isDataUri && resolved.includes('svg+xml') && resolved.length < 150) return;
+      if (!isDataUri && (resolved.includes('1x1') || resolved.includes('pixel.gif') || resolved.includes('spacer.gif'))) return;
 
       if (!mediaSet.has(resolved)) {
         const { type, ext } = UrlResolverService.getMediaTypeAndExt(resolved, tagType);
         const filename = UrlResolverService.getFilenameFromUrl(resolved, ext, counter++);
-        
-        let width = extraAttrs.width || null;
-        let height = extraAttrs.height || null;
+
+        let width = extraAttrs.width ? parseInt(extraAttrs.width, 10) || null : null;
+        let height = extraAttrs.height ? parseInt(extraAttrs.height, 10) || null : null;
+
+        // Descartar píxeles rastreadores explícitos (< 16x16)
+        if (width && height && width < 16 && height < 16) return;
 
         if (type === 'video' && (!width || !height)) {
           const dim = ScraperService.detectDimensionsFromQuality(resolved);
@@ -179,17 +243,17 @@ class ScraperService {
         }
 
         let item = {
-          id: 'media_' + Math.random().toString(36).substr(2, 9),
+          id: 'media_' + Math.random().toString(36).slice(2, 11),
           url: resolved,
-          type: type,
+          type,
           extension: ext.toUpperCase(),
-          filename: filename,
-          alt: altText ? altText.trim().substring(0, 150) : '',
+          filename,
+          alt: altText ? String(altText).trim().substring(0, 150) : '',
           context: metaContext || tagType,
           domain: parsedBaseUrl.hostname,
-          width: width,
-          height: height,
-          proxyUrl: `/api/proxy?url=${encodeURIComponent(resolved)}`
+          width,
+          height,
+          proxyUrl: isDataUri ? resolved : `/api/proxy?url=${encodeURIComponent(resolved)}`
         };
 
         item = AITaggingService.enrichItem(item);
@@ -197,10 +261,10 @@ class ScraperService {
       }
     };
 
-    // Meta Tags (Poster & Title)
+    // Meta Tags (Poster & Video)
     $('meta[property="og:image"], meta[property="og:image:secure_url"], meta[name="twitter:image"]').each((_, el) => {
       const content = $(el).attr('content');
-      if (content) addMediaItem(content, 'image', 'Poster de Video', 'Meta Video Poster');
+      if (content) addMediaItem(content, 'image', 'Poster / OpenGraph', 'Meta OpenGraph');
     });
 
     $('meta[property="og:video"], meta[property="og:video:url"], meta[property="og:video:secure_url"]').each((_, el) => {
@@ -208,16 +272,33 @@ class ScraperService {
       if (content) addMediaItem(content, 'video', 'Meta Video', 'Meta Tag Video');
     });
 
-    // If NOT a direct video page request, scrape general HTML images, backgrounds, picture elements, and links
+    // Etiquetas nativas <video> y <video><source>
+    $('video').each((_, el) => {
+      const $vid = $(el);
+      const vidSrc = $vid.attr('src') || $vid.attr('data-src');
+      const poster = $vid.attr('poster');
+      const w = $vid.attr('width');
+      const h = $vid.attr('height');
+      if (poster && !isDirectVideoPageRequest) {
+        addMediaItem(poster, 'image', 'Poster de Video', 'Atributo poster');
+      }
+      if (vidSrc) {
+        addMediaItem(vidSrc, 'video', 'Video HTML5', 'Elemento <video>', { width: w, height: h });
+      }
+      $vid.find('source').each((__, sourceEl) => {
+        const sSrc = $(sourceEl).attr('src') || $(sourceEl).attr('data-src');
+        if (sSrc) addMediaItem(sSrc, 'video', 'Fuente Video HTML5', 'Elemento <source>', { width: w, height: h });
+      });
+    });
+
     if (!isDirectVideoPageRequest) {
-      // Images
       $('img').each((_, el) => {
         const $img = $(el);
         const src = $img.attr('src') || $img.attr('data-src') || $img.attr('data-original') || $img.attr('data-lazy-src') || $img.attr('data-url');
         const alt = $img.attr('alt') || $img.attr('title') || '';
         const w = $img.attr('width');
         const h = $img.attr('height');
-        
+
         if (src) addMediaItem(src, 'image', alt, 'Elemento <img>', { width: w, height: h });
 
         const srcset = $img.attr('srcset') || $img.attr('data-srcset');
@@ -230,7 +311,6 @@ class ScraperService {
         }
       });
 
-      // Picture / Source
       $('picture source').each((_, el) => {
         const srcset = $(el).attr('srcset');
         if (srcset) {
@@ -242,9 +322,9 @@ class ScraperService {
         }
       });
 
-      // Background CSS
       $('[style*="background"]').each((_, el) => {
         const style = $(el).attr('style');
+        if (!style) return;
         const matches = style.match(/url\s*\(\s*['"]?([^'")]+)['"]?\s*\)/gi);
         if (matches) {
           for (const match of matches) {
@@ -253,7 +333,9 @@ class ScraperService {
           }
         }
       });
-    }    // Explicit flashvars & mediaDefinitions JSON extraction for video streaming platforms
+    }
+
+    // Extracción de flashvars / mediaDefinitions JSON para plataformas de video
     try {
       const flashvarsMatch = html.match(/var\s+flashvars_\d+\s*=\s*({[\s\S]*?});/) || html.match(/flashvars\s*=\s*({[\s\S]*?});/);
       if (flashvarsMatch) {
@@ -263,14 +345,14 @@ class ScraperService {
             if (mediaDef.videoUrl && typeof mediaDef.videoUrl === 'string') {
               const uLower = mediaDef.videoUrl.toLowerCase();
               if (uLower.includes('/get_media') || uLower.includes('/embed/') || uLower.includes('view_video.php')) {
-                return; // Skip get_media JSON API endpoints and embed URLs
+                return;
               }
 
               const qStr = mediaDef.quality ? `${mediaDef.quality}p` : 'HD';
               const dim = ScraperService.detectDimensionsFromQuality(qStr) || {};
               const resWidth = mediaDef.width || dim.width || null;
               const resHeight = mediaDef.height || dim.height || null;
-              
+
               addMediaItem(
                 mediaDef.videoUrl,
                 'video',
@@ -282,22 +364,30 @@ class ScraperService {
           });
         }
       }
-    } catch(e) {}
+    } catch (e) {}
 
-    // Extract Video Streams Embedded in <script> and JS Player Configs (flashvars, mediaDefinitions, HLS/MP4)
+    // Extracción de streams de video embebidos en scripts / configs
     const cleanedHtml = html.replace(/\\\/|\\u002F/g, '/').replace(/&amp;/g, '&');
     const streamRegex = /https?:\/\/[^"'\s\\><]+?\.(mp4|m3u8|webm|flv|mov|m4v)(\?[^"'\s\\><]*)?/gi;
     let streamMatch;
     while ((streamMatch = streamRegex.exec(cleanedHtml)) !== null) {
       const rawUrl = streamMatch[0];
-      if (rawUrl.includes('1x1') || rawUrl.includes('pixel') || rawUrl.includes('preview_sprite') || rawUrl.includes('sprite') || rawUrl.includes('/get_media') || rawUrl.includes('/embed/')) continue;
+      if (
+        rawUrl.includes('1x1') ||
+        rawUrl.includes('pixel') ||
+        rawUrl.includes('preview_sprite') ||
+        rawUrl.includes('sprite') ||
+        rawUrl.includes('/get_media') ||
+        rawUrl.includes('/embed/')
+      ) {
+        continue;
+      }
 
       const { qualityLabel, width, height } = ScraperService.detectDimensionsFromQuality(rawUrl);
       const contextText = qualityLabel ? `Stream de Video (${qualityLabel})` : 'Stream de Video Player/JS';
       addMediaItem(rawUrl, 'video', `Video Stream (${qualityLabel || 'Media'})`, contextText, { width, height });
     }
 
-    // Extract links & collect internal URLs for Deep Scraping (Prioritizing Video Pages)
     const priorityVideoLinks = new Set();
     const otherInternalLinks = new Set();
 
@@ -308,7 +398,7 @@ class ScraperService {
         addMediaItem(href, /\.(mp4|webm|ogg|mov)(\?|$)/i.test(href) ? 'video' : 'image', 'Enlace directo', 'Enlace <a>');
       } else {
         const resolvedLink = UrlResolverService.resolveUrl(href, finalUrl);
-        if (resolvedLink) {
+        if (resolvedLink && !resolvedLink.startsWith('data:')) {
           try {
             const linkUrl = new URL(resolvedLink);
             if (linkUrl.hostname === parsedBaseUrl.hostname && resolvedLink !== finalUrl && !resolvedLink.includes('#')) {
@@ -318,7 +408,7 @@ class ScraperService {
                 otherInternalLinks.add(resolvedLink);
               }
             }
-          } catch(e) {}
+          } catch (e) {}
         }
       }
     });
@@ -331,7 +421,6 @@ class ScraperService {
     const imageCount = items.filter(i => i.type === 'image').length;
     const videoCount = items.filter(i => i.type === 'video').length;
 
-    // Detect and Group Main Video with Qualities List
     const videoItems = items.filter(i => {
       if (i.type !== 'video') return false;
       const uLower = (i.url || '').toLowerCase();
@@ -340,23 +429,27 @@ class ScraperService {
       }
       return true;
     });
+
     let mainVideo = null;
     let hasMainVideo = false;
 
     if (videoItems.length > 0) {
-      const posterItem = items.find(i => i.context.toLowerCase().includes('poster') || i.context.toLowerCase().includes('opengraph') || i.type === 'image');
+      const posterItem = items.find(i =>
+        (i.context || '').toLowerCase().includes('poster') ||
+        (i.context || '').toLowerCase().includes('opengraph') ||
+        i.type === 'image'
+      );
       const posterUrl = posterItem ? posterItem.proxyUrl : null;
-
       const qualitiesMap = new Map();
 
       videoItems.forEach(v => {
         const dim = ScraperService.detectDimensionsFromQuality(v.url);
         const qualityKey = dim.qualityLabel || (v.width && v.height ? `${v.height}p` : 'HD');
-        
+
         if (!qualitiesMap.has(qualityKey)) {
           const resWidth = dim.width || v.width || null;
           const resHeight = dim.height || v.height || null;
-          const safeFilename = `${pageTitle.substring(0, 50).replace(/[^a-zA-Z0-9_\.-]/g, '_')}_${qualityKey.replace(/[^a-zA-Z0-9]/g, '')}.mp4`;
+          const safeFilename = `${pageTitle.substring(0, 50).replace(/[^a-zA-Z0-9_.-]/g, '_')}_${qualityKey.replace(/[^a-zA-Z0-9]/g, '')}.mp4`;
 
           qualitiesMap.set(qualityKey, {
             quality: qualityKey,
@@ -390,6 +483,7 @@ class ScraperService {
         };
       }
     }
+
     const isDirectVideoPage = isDirectVideoPageRequest && hasMainVideo;
     const finalItems = isDirectVideoPage ? [] : items;
 
@@ -412,7 +506,7 @@ class ScraperService {
 
   static detectDimensionsFromQuality(urlStr) {
     if (!urlStr) return { qualityLabel: null, width: null, height: null };
-    const match = urlStr.match(/(2160p|1080p|720p|480p|360p|240p|180p|4k)/i);
+    const match = String(urlStr).match(/(2160p|1080p|720p|480p|360p|240p|180p|4k)/i);
     if (!match) return { qualityLabel: null, width: null, height: null };
     const q = match[1].toLowerCase();
     if (q === '2160p' || q === '4k') return { qualityLabel: '4K Ultra HD 2160p', width: 3840, height: 2160 };
@@ -422,7 +516,7 @@ class ScraperService {
     if (q === '360p') return { qualityLabel: 'SD 360p', width: 640, height: 360 };
     if (q === '240p') return { qualityLabel: 'SD 240p', width: 426, height: 240 };
     if (q === '180p') return { qualityLabel: 'Low 180p', width: 320, height: 180 };
-    return { qualityLabel: `${q.toUpperCase()}`, width: null, height: null };
+    return { qualityLabel: q.toUpperCase(), width: null, height: null };
   }
 }
 

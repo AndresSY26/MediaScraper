@@ -109,58 +109,65 @@ Desarrollado bajo el paradigma de **Diseño Impeccable 2.0**, combina un motor d
 
 ```
 MediaScraper/
-├── server.js                      # Servidor Express, endpoints API, Scraping Proxy y ZIP Streamer
-├── package.json                   # Manifiesto de dependencias y scripts Node.js
-├── README.md                      # Documentación exhaustiva del proyecto
-└── public/                        # Directorio de activos públicos servidos por Express
-    ├── index.html                 # Estructura principal HTML5 y contenedores modales
-    ├── manifest.json              # Manifiesto PWA para instalación en SO
-    ├── sw.js                      # Service Worker para almacenamiento en caché offline
-    ├── css/
-    │   ├── main.css               # Tokens de diseño, tipografía y diseño global
-    │   ├── components.css         # Estilos de tarjetas 3D, banners y paneles
-    │   └── videoPlayer.css        # Estilos del reproductor, dock flotante, modales y filtros
-    ├── js/
-    │   ├── app.js                 # Controlador principal y gestión de eventos de scraping
-    │   ├── components/
-    │   │   ├── drawer.component.js      # Panel lateral de inspección con IA & OCR
-    │   │   ├── fullscreen.component.js  # Visor panorámico en HD con zoom 3D
-    │   │   ├── imageEditor.component.js # Editor canvas y extractor paleta HEX
-    │   │   └── videoPlayer.component.js # Reproductor de video personalizado de 1 fila
-    │   └── services/
-    │       ├── aiVision.service.js      # Servicio de etiquetado por IA TensorFlow.js
-    │       └── pdfReport.service.js     # Servicio de catálogo PDF en grilla 2x2
-    └── assets/
-        └── logo.svg               # Logotipo oficial vectorizado de MediaScraper
+├── api/
+│   └── index.js                   # Entrypoint Serverless para Vercel (@vercel/node)
+├── config/
+│   ├── index.js                   # Configuración tipada de entorno, límites, CORS y /tmp
+│   └── constants.js               # Constantes de validación, protocolos y dominios
+├── src/
+│   ├── controllers/               # Controladores HTTP (scrape, proxy, download, export)
+│   ├── middlewares/               # Error handler centralizado y rate-limiter en memoria
+│   ├── routes/                    # Definición modular de endpoints /api/* y /api/health
+│   └── services/                  # Lógica de negocio, anti-SSRF, scraping, ZIP stream e IA
+├── public/                        # Activos servidos por Vercel Edge CDN o Express (Render)
+│   ├── index.html                 # Interfaz principal accesible con Skeleton Loader
+│   ├── manifest.json              # Manifiesto PWA instalable
+│   ├── sw.js                      # Service Worker (Network-First HTML + exclusión CDNs)
+│   ├── ads.txt                    # Verificación oficial de monetización AdSense
+│   ├── styles.css                 # Punto de entrada modular CSS
+│   ├── css/                       # Tokens (variables, base, components, drawer, videoPlayer, responsive)
+│   ├── js/
+│   │   ├── app.js                 # Orquestador principal frontend
+│   │   ├── config/constants.js    # URLs de librerías IA diferidas y límites de cliente
+│   │   ├── utils/dom.util.js      # Sanitización anti-XSS, lazy-loader y bloqueo de scroll
+│   │   ├── services/              # API cliente, IA MobileNet, Extractor WAV Web Audio y PDF
+│   │   └── components/            # Galería, Reproductor HD, Drawer OCR, Editor Canvas, ZIP Modal
+│   └── assets/logo.svg            # Logotipo vectorial oficial
+├── tests/
+│   └── server-serverless.test.js  # Suite automatizada de pruebas Serverless, SSRF, ZIP y sintaxis
+├── server.js                      # Instancia Express exportable + servidor HTTP para Render/Local
+├── vercel.json                    # Configuración Vercel v2 (Edge Static + Function maxDuration 60s)
+├── .env.example                   # Plantilla de variables de entorno
+└── package.json                   # Dependencias CommonJS estables y engines Node >=20.18.1
 ```
 
 ---
 
-## 🚀 Instalación y Configuración
+## 🚀 Instalación, Ejecución y Despliegue (Vercel & Render)
 
 ### Requisitos Previos
-- **Node.js** v18.0.0 o superior.
-- Navegador moderno con soporte para WebGL y WebAssembly (Chrome, Edge, Firefox, Safari).
+- **Node.js** `>= 20.18.1` (recomendado Node 22 LTS).
+- Navegador moderno con soporte para WebGL, Web Audio API y WebAssembly.
 
-### Pasos de Inicio Rápido
+### Ejecución Local
+```bash
+npm install
+npm test
+npm start
+```
+Accede en tu navegador a `http://localhost:3005`.
 
-1. **Clonar el repositorio o navegar al directorio del proyecto**:
-   ```bash
-   cd C:\Users\USUARIO\Desktop\MediaScraper
-   ```
+### Despliegue en Vercel (Serverless + Edge CDN)
+1. Importa el repositorio en **Vercel** (Framework Preset: *Other*).
+2. `vercel.json` sirve automáticamente `public/` desde el Edge CDN global y enruta `/api/*` hacia `api/index.js` (`module.exports = app`).
+3. Configura variables opcionales desde `.env.example` (`ALLOWED_ORIGINS` si usas dominios externos adicionales).
 
-2. **Instalar dependencias**:
-   ```bash
-   npm install
-   ```
+### Despliegue en Render (Web Service Persistente)
+1. Crea un **Web Service** conectado al repositorio.
+2. **Build Command**: `npm install`
+3. **Start Command**: `npm start` (`node server.js` detecta que no está en Vercel y levanta `app.listen(PORT)` automáticamente).
+4. **Health Check Path**: `/api/health`
 
-3. **Iniciar el servidor local**:
-   ```bash
-   npm start
-   ```
-
-4. **Acceder a la aplicación**:
-   Abre tu navegador e ingresa a: `http://localhost:3005`
 
 ---
 

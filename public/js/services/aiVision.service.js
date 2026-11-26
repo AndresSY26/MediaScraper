@@ -1,17 +1,34 @@
+import { CDN_LIBRARIES } from '../config/constants.js';
+import { loadScriptOnce } from '../utils/dom.util.js';
+
 /**
- * Servicio de Visión por Computador con Red Neuronal TensorFlow.js & MobileNet
- * Analiza directamente los píxeles visibles de la imagen en tiempo real.
+ * Servicio de Visión por Computador con carga diferida (lazy-load) de TensorFlow.js & MobileNet
  */
 export class AIVisionService {
   static modelPromise = null;
 
+  static async ensureLibrariesLoaded() {
+    if (!window.tf) {
+      await loadScriptOnce(CDN_LIBRARIES.TFJS);
+    }
+    if (!window.mobilenet) {
+      await loadScriptOnce(CDN_LIBRARIES.MOBILENET);
+    }
+  }
+
   static async loadModel() {
     if (!this.modelPromise) {
-      if (window.mobilenet) {
-        this.modelPromise = window.mobilenet.load();
-      } else {
-        return null;
-      }
+      this.modelPromise = (async () => {
+        await this.ensureLibrariesLoaded();
+        if (!window.mobilenet) {
+          throw new Error('MobileNet no disponible');
+        }
+        return await window.mobilenet.load();
+      })().catch((err) => {
+        // Limpiar promesa rechazada para permitir reintentos futuros si recupera la red
+        this.modelPromise = null;
+        throw err;
+      });
     }
     return this.modelPromise;
   }
@@ -27,10 +44,9 @@ export class AIVisionService {
       const predictions = await model.classify(imgElement);
       if (!predictions || predictions.length === 0) return null;
 
-      // Mapeo y traducción amigable a español de los objetos reconocidos
       return predictions.slice(0, 3).map(pred => {
         const rawLabel = (pred.className || '').toLowerCase();
-        const confidence = Math.round(pred.probability * 100);
+        const confidence = Math.round((pred.probability || 0) * 100);
         const translatedLabel = this.translateLabel(rawLabel);
 
         return {
@@ -38,9 +54,8 @@ export class AIVisionService {
           confidence: `${confidence}%`
         };
       });
-
     } catch (err) {
-      console.warn('Error al clasificar visualmente la imagen con IA:', err);
+      console.warn('Clasificación visual IA omitida:', err.message || err);
       return null;
     }
   }
@@ -61,7 +76,6 @@ export class AIVisionService {
     if (/dog|retriever|canine/i.test(raw)) return 'Canino / Mascota';
     if (/web|site|graphic|chart/i.test(raw)) return 'Gráfico / Interfaz Web';
 
-    // Formatear etiqueta genérica capitalizando las palabras principales
     return raw.split(',')[0].split(' ')
       .map(w => w.charAt(0).toUpperCase() + w.slice(1))
       .join(' ');

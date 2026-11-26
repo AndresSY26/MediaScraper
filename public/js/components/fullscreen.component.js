@@ -1,7 +1,9 @@
+import { CDN_LIBRARIES } from '../config/constants.js';
 import { CustomVideoPlayer } from './videoPlayer.component.js';
+import { loadScriptOnce, syncBodyScrollLock } from '../utils/dom.util.js';
 
 /**
- * Componente Visor HD en Pantalla Completa con Zoom y Google Lens OCR
+ * Componente Visor HD en Pantalla Completa con Zoom para Imágenes y Google Lens OCR diferido
  */
 export class FullscreenComponent {
   constructor() {
@@ -14,7 +16,6 @@ export class FullscreenComponent {
     this.zoomResetBtn = document.getElementById('zoomResetBtn');
     this.toggleNativeFSBtn = document.getElementById('toggleNativeFSBtn');
 
-    // Google Lens Fullscreen DOM Elements
     this.fullscreenLensBtn = document.getElementById('fullscreenLensBtn');
     this.fullscreenLensPanel = document.getElementById('fullscreenLensPanel');
     this.closeLensPanelBtn = document.getElementById('closeLensPanelBtn');
@@ -24,6 +25,7 @@ export class FullscreenComponent {
 
     this.currentZoom = 1;
     this.currentItem = null;
+    this.activePlayer = null;
     this.initEvents();
   }
 
@@ -49,13 +51,21 @@ export class FullscreenComponent {
     }
 
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.modal.classList.contains('active')) {
+      if (e.key === 'Escape' && this.modal && this.modal.classList.contains('active')) {
         this.close();
       }
     });
   }
 
+  destroyActivePlayer() {
+    if (this.activePlayer) {
+      this.activePlayer.destroy();
+      this.activePlayer = null;
+    }
+  }
+
   open(item) {
+    this.destroyActivePlayer();
     this.currentItem = item;
     this.container.innerHTML = '';
     this.currentZoom = 1;
@@ -64,40 +74,47 @@ export class FullscreenComponent {
     if (this.fullscreenLensPanel) this.fullscreenLensPanel.classList.remove('active');
     if (this.fullscreenLensTextarea) this.fullscreenLensTextarea.value = '';
 
-    if (this.filenameEl) this.filenameEl.textContent = item.filename;
-    if (this.fullscreenLensBtn) {
-      this.fullscreenLensBtn.style.display = item.type === 'image' ? 'flex' : 'none';
-    }
+    if (this.filenameEl) this.filenameEl.textContent = item.filename || 'Media HD';
+
+    const isImage = item.type === 'image';
+    if (this.fullscreenLensBtn) this.fullscreenLensBtn.style.display = isImage ? 'flex' : 'none';
+    if (this.zoomInBtn) this.zoomInBtn.style.display = isImage ? 'flex' : 'none';
+    if (this.zoomOutBtn) this.zoomOutBtn.style.display = isImage ? 'flex' : 'none';
+    if (this.zoomResetBtn) this.zoomResetBtn.style.display = isImage ? 'flex' : 'none';
 
     if (item.type === 'video') {
-      const player = new CustomVideoPlayer(item.proxyUrl);
-      this.container.appendChild(player.getElement());
+      this.activePlayer = new CustomVideoPlayer(item.proxyUrl, {
+        originalUrl: item.url,
+        filename: item.filename
+      });
+      this.container.appendChild(this.activePlayer.getElement());
     } else {
       const img = document.createElement('img');
       img.crossOrigin = 'Anonymous';
       img.src = item.proxyUrl;
-      img.alt = item.filename;
+      img.alt = item.filename || 'Media HD';
       this.container.appendChild(img);
     }
 
     this.modal.classList.add('active');
+    syncBodyScrollLock();
   }
 
   async runGoogleLensOcr() {
     if (!this.currentItem || this.currentItem.type !== 'image') return;
-    if (!window.Tesseract) {
-      alert('La librería Google Lens OCR no está disponible.');
-      return;
-    }
 
     if (this.fullscreenLensPanel) this.fullscreenLensPanel.classList.add('active');
     if (this.lensStatusText) {
-      this.lensStatusText.style.display = 'block';
-      this.lensStatusText.innerHTML = '<i class="ri-loader-4-line spin"></i> Escaneando texto en HD...';
+      this.lensStatusText.style.display = 'flex';
+      this.lensStatusText.innerHTML = '<i class="ri-loader-4-line spin"></i> Cargando motor OCR...';
     }
     if (this.fullscreenLensTextarea) this.fullscreenLensTextarea.value = '';
 
     try {
+      if (!window.Tesseract) {
+        await loadScriptOnce(CDN_LIBRARIES.TESSERACT);
+      }
+
       const result = await window.Tesseract.recognize(
         this.currentItem.proxyUrl,
         'spa+eng',
@@ -111,31 +128,24 @@ export class FullscreenComponent {
         }
       );
 
-      const extractedText = (result.data.text || '').trim();
+      const extractedText = (result.data?.text || '').trim();
+      if (this.lensStatusText) this.lensStatusText.style.display = 'none';
 
-      if (this.lensStatusText) {
-        this.lensStatusText.style.display = 'none';
-      }
-
-      if (extractedText.length > 0) {
-        this.fullscreenLensTextarea.value = extractedText;
-      } else {
-        this.fullscreenLensTextarea.value = 'No se detectó texto legible dentro de esta imagen.';
-      }
-
+      this.fullscreenLensTextarea.value = extractedText.length > 0
+        ? extractedText
+        : 'No se detectó texto legible dentro de esta imagen.';
     } catch (err) {
-      console.warn('Error en Google Lens Fullscreen OCR:', err);
+      console.warn('Error en Fullscreen OCR:', err);
       if (this.lensStatusText) {
-        this.lensStatusText.style.display = 'block';
-        this.lensStatusText.innerHTML = '<i class="ri-error-warning-line"></i> Error en escaneo.';
+        this.lensStatusText.style.display = 'flex';
+        this.lensStatusText.innerHTML = '<i class="ri-error-warning-line"></i> Error al ejecutar el escaneo OCR.';
       }
     }
   }
 
   copyLensText() {
     if (!this.fullscreenLensTextarea.value) return;
-    this.fullscreenLensTextarea.select();
-    navigator.clipboard.writeText(this.fullscreenLensTextarea.value);
+    navigator.clipboard.writeText(this.fullscreenLensTextarea.value).catch(() => {});
     const originalHTML = this.copyFullscreenLensBtn.innerHTML;
     this.copyFullscreenLensBtn.innerHTML = '<i class="ri-check-line"></i> ¡Texto Copiado!';
     setTimeout(() => {
@@ -144,12 +154,14 @@ export class FullscreenComponent {
   }
 
   close() {
-    this.modal.classList.remove('active');
-    this.container.innerHTML = '';
+    this.destroyActivePlayer();
+    if (this.modal) this.modal.classList.remove('active');
+    if (this.container) this.container.innerHTML = '';
     if (this.fullscreenLensPanel) this.fullscreenLensPanel.classList.remove('active');
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
+    syncBodyScrollLock();
   }
 
   zoomIn() {
@@ -172,7 +184,9 @@ export class FullscreenComponent {
   }
 
   applyZoom() {
-    this.container.style.transform = `scale(${this.currentZoom})`;
+    if (this.container) {
+      this.container.style.transform = `scale(${this.currentZoom})`;
+    }
   }
 
   toggleNativeFS() {

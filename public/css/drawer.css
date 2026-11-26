@@ -150,7 +150,13 @@
   font-weight: 600;
 }
 
-.meta-val {
+.drawer-actions-row {
+  display: flex;
+  gap: 8px;
+}
+
+.meta-val,
+.meta-value {
   color: var(--text-primary);
   font-weight: 700;
   word-break: break-all;
@@ -166,7 +172,8 @@
   text-transform: uppercase;
 }
 
-.ai-badge {
+.ai-badge,
+.ai-tag-badge {
   background: rgba(168, 85, 247, 0.15);
   border: 1px solid rgba(168, 85, 247, 0.35);
   color: #c084fc;
@@ -183,8 +190,9 @@
   transition: transform 0.25s ease;
 }
 
-.ai-badge:hover {
-  transform: scale(1.08);
+.ai-badge:hover,
+.ai-tag-badge:hover {
+  transform: scale(1.06);
 }
 
 /* Copy Box */
