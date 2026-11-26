@@ -59,11 +59,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Pass-through estricto para orígenes externos (AdSense, TensorFlow, Tesseract, Fonts), API, ads.txt y Range
+  // Pass-through estricto para orígenes externos (AdSense, TensorFlow, Tesseract, Fonts), API, ads.txt, robots.txt y Range
   if (
     reqUrl.origin !== self.location.origin ||
     reqUrl.pathname.startsWith('/api/') ||
     reqUrl.pathname === '/ads.txt' ||
+    reqUrl.pathname === '/robots.txt' ||
     reqUrl.pathname === '/sw.js' ||
     event.request.headers.has('range')
   ) {

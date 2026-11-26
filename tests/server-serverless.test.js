@@ -45,7 +45,7 @@ test('1. Cold start Serverless: server.js y api/index.js exportan instancia Expr
   assert.ok(Array.isArray(vercelJson.rewrites));
 });
 
-test('2. Endpoints base: /api/health, index.html, sw.js, ads.txt y 404 API JSON', async () => {
+test('2. Endpoints base: /api/health, index.html, sw.js, ads.txt, robots.txt y 404 API JSON', async () => {
   const healthRes = await fetch(`${baseUrl}/api/health`);
   assert.equal(healthRes.status, 200);
   const healthBody = await healthRes.json();
@@ -56,7 +56,9 @@ test('2. Endpoints base: /api/health, index.html, sw.js, ads.txt y 404 API JSON'
   assert.equal(htmlRes.status, 200);
   const htmlText = await htmlRes.text();
   assert.match(htmlText, /MediaScraper/);
-  assert.match(htmlText, /ca-pub-2369620196115106/);
+  // Verificación estricta de Google AdSense
+  assert.match(htmlText, /<meta name="google-adsense-account" content="ca-pub-2369620196115106">/);
+  assert.match(htmlText, /<script async src="https:\/\/pagead2\.googlesyndication\.com\/pagead\/js\/adsbygoogle\.js\?client=ca-pub-2369620196115106"/);
   assert.doesNotMatch(htmlText, /<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@tensorflow\/tfjs/);
 
   const swRes = await fetch(`${baseUrl}/sw.js`);
@@ -67,7 +69,13 @@ test('2. Endpoints base: /api/health, index.html, sw.js, ads.txt y 404 API JSON'
   const adsRes = await fetch(`${baseUrl}/ads.txt`);
   assert.equal(adsRes.status, 200);
   const adsText = await adsRes.text();
-  assert.match(adsText, /pub-2369620196115106/);
+  assert.match(adsText, /^google\.com, pub-2369620196115106, DIRECT, f08c47fec0942fa0/m);
+
+  const robotsRes = await fetch(`${baseUrl}/robots.txt`);
+  assert.equal(robotsRes.status, 200);
+  const robotsText = await robotsRes.text();
+  assert.match(robotsText, /User-agent:\s*Mediapartners-Google/);
+  assert.match(robotsText, /Allow:\s*\/ads\.txt/);
 
   const notFoundRes = await fetch(`${baseUrl}/api/unknown-endpoint`);
   assert.equal(notFoundRes.status, 404);
